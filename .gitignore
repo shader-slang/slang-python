@@ -127,3 +127,7 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+tests/smoke_cuda.cu
+tests/smoke.cpp
+bin/
