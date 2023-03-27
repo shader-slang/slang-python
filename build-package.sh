@@ -11,8 +11,8 @@ unzip -n $LINUX64ZIP -d ./tmp
 pip install build
 
 mkdir -p ./bin/
-cp ./tmp/bin/windows-x86/release/slang.dll ./bin/slang.dll
-cp ./tmp/bin/windows-x86/release/slangc.exe ./bin/slangc.exe
+cp ./tmp/bin/windows-x64/release/slang.dll ./bin/slang.dll
+cp ./tmp/bin/windows-x64/release/slangc.exe ./bin/slangc.exe
 python3 -m build --wheel --plat-name=win_amd64
 
 rm -rf ./bin/
