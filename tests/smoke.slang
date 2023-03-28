@@ -9,18 +9,25 @@ struct ReturnValue
     TorchTensor<float> v1;
 }
 
+struct Inputs
+{
+    TorchTensor<float> input;
+    float value;
+}
+
 [CudaKernel]
-void myKernel(TensorView<float> inValues, TensorView<float> outValues)
+void myKernel(TensorView<float> inValues, TensorView<float> outValues, float v)
 {
     var inputVal = inValues.load(cudaThreadIdx().x, cudaThreadIdx().y);
-    outValues.store(cudaThreadIdx().x, cudaThreadIdx().y, 1.0 + inputVal);
+    outValues.store(cudaThreadIdx().x, cudaThreadIdx().y, v + inputVal);
 }
 
 [TorchEntryPoint]
-public __extern_cpp ReturnValue runCompute(TorchTensor<float> inValues)
+public __extern_cpp ReturnValue runCompute(Inputs inputs)
 {
+    let inValues = inputs.input;
     var outValues = TorchTensor<float>.alloc(inValues.size(0), inValues.size(1));
-    __dispatch_kernel(myKernel, uint3(1, 1, 1), uint3(inValues.size(0), inValues.size(1), 1))(inValues, outValues);
+    __dispatch_kernel(myKernel, uint3(1, 1, 1), uint3(inValues.size(0), inValues.size(1), 1))(inValues, outValues, inputs.value);
     ReturnValue retVal;
     retVal.v0 = inValues;
     retVal.v1 = outValues;
