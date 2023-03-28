@@ -13,10 +13,6 @@ pip install build
 mkdir -p ./bin/
 cp ./tmp/bin/windows-x64/release/slang.dll ./bin/slang.dll
 cp ./tmp/bin/windows-x64/release/slangc.exe ./bin/slangc.exe
-python3 -m build --wheel --plat-name=win_amd64
-
-rm -rf ./bin/
-mkdir -p ./bin/
 cp ./tmp/bin/linux-x64/release/libslang.so ./bin/libslang.so
 cp ./tmp/bin/linux-x64/release/slangc ./bin/slangc
-python3 -m build --wheel --plat-name=linux_x86_64
+python3 -m build

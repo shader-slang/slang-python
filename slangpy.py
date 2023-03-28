@@ -11,19 +11,16 @@ package_dir = pkg_resources.resource_filename(__name__, '')
 if sys.platform == "win32":
     # Windows
     executable_extension = ".exe"
-    os_name = "win32"
 
 elif sys.platform == "darwin":
     # macOS
     executable_extension = ""
-    os_name = "darwin"
 else:
     # Linux and other Unix-like systems
     executable_extension = ""
-    os_name = "linux"
 
 slangc_path = os.path.join(
-    package_dir, 'bin', os_name, 'slangc'+executable_extension)
+    package_dir, 'bin', 'slangc'+executable_extension)
 
 def _replaceFileExt(fileName, newExt):
     base_name, old_extension = os.path.splitext(fileName)
@@ -59,8 +56,13 @@ def loadModule(fileName, verbose=False):
         print("loading slang module: " + fileName)
         print("slangc location: " + slangc_path)
 
-    cppOutName = _replaceFileExt(fileName, ".cpp")
-    cudaOutName = _replaceFileExt(fileName, "_cuda.cu")
+    parent_folder = os.path.dirname(fileName)
+    output_folder = os.path.join(parent_folder, ".slangpy_cache")
+    if not os.path.exists(output_folder):
+        os.makedirs(output_folder)
+    base_name = os.path.basename(fileName)
+    cppOutName = os.path.join(output_folder, _replaceFileExt(base_name, ".cpp"))
+    cudaOutName = os.path.join(output_folder, _replaceFileExt(base_name, "_cuda.cu"))
 
     result = subprocess.run([slangc_path, fileName, '-o', cppOutName, '-target', 'torch-binding' ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     slangcOutput = result.stderr.decode('utf-8')
