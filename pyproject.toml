@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "slangpy"
 version = "0.0.1"
 dependencies = [
-  "torch>=2.0.0",
+  "torch>=1.1.0",
   "hatchling>=1.11.0",
   "ninja"
 ]
@@ -27,10 +27,7 @@ classifiers = [
 "Homepage" = "https://github.com/shader-slang/slang"
 "Bug Tracker" = "https://github.com/shader-slang/slang-python/issues"
 
-
-[tool.hatch.files]
-include = ["slangpy.py", "bin/*"]
-exclude = [".*/", "tests/", "build.bat", "build-package.sh", ".gitignore", "tmp/"]
-
 [tool.hatch.build]
-platforms = ["win_amd64", "linux_x86_64"]
+ignore-vcs = true
+include = ["__init__.py", "slangpy.py", "bin/*"]
+exclude = [".github/**", "tests/*.*", "build.bat", "build-package.sh", ".gitignore", "tmp/**"]
