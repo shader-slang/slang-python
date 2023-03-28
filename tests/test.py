@@ -11,7 +11,7 @@ class TestSlangPySmoke(unittest.TestCase):
         module = slangpy.loadModule(slangModuleFile)
         
         X = torch.zeros(2, 2)
-        Y = module.runCompute(X)[0].cpu()
+        Y = module.runCompute(X).cpu()
         expected = torch.tensor([[1,1],[1,1]])
         assert(torch.all(torch.eq(Y, expected))
 )
