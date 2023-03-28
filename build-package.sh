@@ -15,4 +15,12 @@ cp ./tmp/bin/windows-x64/release/slang.dll ./bin/slang.dll
 cp ./tmp/bin/windows-x64/release/slangc.exe ./bin/slangc.exe
 cp ./tmp/bin/linux-x64/release/libslang.so ./bin/libslang.so
 cp ./tmp/bin/linux-x64/release/slangc ./bin/slangc
+
+echo "content of bin/:"
+ls ./bin/
+
+rm $WIN64ZIP
+rm $LINUX64ZIP
+rm -rf ./tmp/
+
 python3 -m build
