@@ -20,6 +20,5 @@ rm -rf ./tmp/
 
 python3 --version
 
-python3 -m pip install --upgrade pip setuptools wheel build
-pip install twine
+python3 -m pip install --upgrade build
 python3 -m build
