@@ -1,6 +1,6 @@
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["hatch"]
+build-backend = "hatch.build"
 
 [project]
 name = "slangpy"
@@ -27,7 +27,9 @@ classifiers = [
 "Homepage" = "https://github.com/shader-slang/slang"
 "Bug Tracker" = "https://github.com/shader-slang/slang-python/issues"
 
+[tool.hatch.build]
+ignore-vcs = true
 
 [tool.hatch.files]
-include = ["slangpy.py", "bin/*"]
+include = ["__init__.py", "slangpy.py", "bin/*"]
 exclude = [".github/*", "tests/*", "build.bat", "build-package.sh", ".gitignore", "tmp/*"]
