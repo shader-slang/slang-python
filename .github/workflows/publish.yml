@@ -2,13 +2,14 @@ name: Publish SlangPy
 
 on:
   push:
-    branches: [ main ]
+    tags:
+    - 'v*' # Push events to matching v*, i.e. v1.0, v20.15.10
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2.3.4
+    - uses: actions/checkout@v3
       with:
         submodules: 'true'
         fetch-depth: '0'
@@ -43,8 +44,14 @@ jobs:
         do
           echo "Built Package: $file"
         done
+
     - uses: actions/upload-artifact@v3
       with:
         name: slangpy
         path: |
           ./dist/*
+
+    - name: Publish a Python distribution to PyPI
+      uses: pypa/gh-action-pypi-publish@release/v1
+      with:
+        password: ${{ secrets.PYPI_API_TOKEN }}
