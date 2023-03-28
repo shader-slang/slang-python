@@ -1,6 +1,6 @@
 [build-system]
-requires = ["hatch"]
-build-backend = "hatch.build"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "slangpy"
