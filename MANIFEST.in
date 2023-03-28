@@ -1,0 +1,8 @@
+exclude build-package.sh
+exclude build.bat
+exclude dist/
+exclude tests/
+include bin/slang.dll
+include bin/libslang.so
+include bin/slangc
+include bin/slangc.exe
