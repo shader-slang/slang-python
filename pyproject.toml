@@ -30,7 +30,7 @@ classifiers = [
 
 [tool.hatch.files]
 include = ["slangpy.py", "bin/*"]
-exclude = [".*/", "tests/", "build.bat", ".gitignore"]
+exclude = [".*/", "tests/", "build.bat", "build-package.sh", ".gitignore", "tmp/"]
 
 [tool.hatch.build]
 platforms = ["win_amd64", "linux_x86_64"]
