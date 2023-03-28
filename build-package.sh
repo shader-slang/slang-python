@@ -20,5 +20,5 @@ rm -rf ./tmp/
 
 python3 --version
 
-python3 -m pip install --upgrade build
-python3 -m build
+pip install .
+hatch build .
