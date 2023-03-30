@@ -18,15 +18,17 @@ struct Inputs
 [CudaKernel]
 void myKernel(TensorView<float> inValues, TensorView<float> outValues, float v)
 {
-    var inputVal = inValues.load(cudaThreadIdx().x, cudaThreadIdx().y);
-    outValues.store(cudaThreadIdx().x, cudaThreadIdx().y, v + inputVal);
+    var inputVal = inValues[cudaThreadIdx().xy];
+    outValues[cudaThreadIdx().xy] = 0;
+    float oldVal;
+    outValues.InterlockedAdd(cudaThreadIdx().xy, v + inputVal, oldVal);
 }
 
 [TorchEntryPoint]
 public __extern_cpp ReturnValue runCompute(Inputs inputs)
 {
     let inValues = inputs.input;
-    var outValues = TorchTensor<float>.alloc(inValues.size(0), inValues.size(1));
+    var outValues = TorchTensor<float>.zerosLike(inValues);
     __dispatch_kernel(myKernel, uint3(1, 1, 1), uint3(inValues.size(0), inValues.size(1), 1))(inValues, outValues, inputs.value);
     ReturnValue retVal;
     retVal.v0 = inValues;
