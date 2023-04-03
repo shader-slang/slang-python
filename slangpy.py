@@ -51,7 +51,7 @@ def _add_msvc_to_env_var():
         if path_to_add not in os.environ["PATH"].split(os.pathsep):
             os.environ["PATH"] += os.pathsep + path_to_add
 
-def loadModule(fileName, verbose=False):
+def loadModule(fileName, skipSlang=False, verbose=False):
     if verbose:
         print("loading slang module: " + fileName)
         print("slangc location: " + slangc_path)
@@ -64,20 +64,21 @@ def loadModule(fileName, verbose=False):
     cppOutName = os.path.join(output_folder, _replaceFileExt(base_name, ".cpp"))
     cudaOutName = os.path.join(output_folder, _replaceFileExt(base_name, "_cuda.cu"))
 
-    result = subprocess.run([slangc_path, fileName, '-o', cppOutName, '-target', 'torch-binding' ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    slangcOutput = result.stderr.decode('utf-8')
-    if slangcOutput.strip():
-        print(slangcOutput)
-    if result.returncode != 0:
-        raise RuntimeError(f"compilation failed with error {result.returncode}")
+    if not(skipSlang and os.path.exists(cppOutName)):
+        result = subprocess.run([slangc_path, fileName, '-o', cppOutName, '-target', 'torch-binding' ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        slangcOutput = result.stderr.decode('utf-8')
+        if slangcOutput.strip():
+            print(slangcOutput)
+        if result.returncode != 0:
+            raise RuntimeError(f"compilation failed with error {result.returncode}")
     
-    result = subprocess.run([slangc_path, fileName, '-o', cudaOutName ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    slangcOutput = result.stderr.decode('utf-8')
-    if slangcOutput.strip():
-        print(slangcOutput)
-
-    if result.returncode != 0:
-        raise RuntimeError(f"compilation failed with error {result.returncode}")
+    if not(skipSlang and os.path.exists(cudaOutName)):
+        result = subprocess.run([slangc_path, fileName, '-o', cudaOutName ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        slangcOutput = result.stderr.decode('utf-8')
+        if slangcOutput.strip():
+            print(slangcOutput)
+        if result.returncode != 0:
+            raise RuntimeError(f"compilation failed with error {result.returncode}")
     
     moduleName = os.path.basename(fileName)[0]
     
