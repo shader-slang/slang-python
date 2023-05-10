@@ -3,6 +3,7 @@ import sys
 import pkg_resources
 import subprocess
 import glob
+import time
 
 from torch.utils.cpp_extension import load
 
@@ -64,6 +65,8 @@ def loadModule(fileName, skipSlang=False, verbose=False):
     cppOutName = os.path.join(output_folder, _replaceFileExt(base_name, ".cpp"))
     cudaOutName = os.path.join(output_folder, _replaceFileExt(base_name, "_cuda.cu"))
 
+    compileStartTime = time.perf_counter()
+
     if not(skipSlang and os.path.exists(cppOutName)):
         result = subprocess.run([slangc_path, fileName, '-o', cppOutName, '-target', 'torch-binding' ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         slangcOutput = result.stderr.decode('utf-8')
@@ -80,10 +83,19 @@ def loadModule(fileName, skipSlang=False, verbose=False):
         if result.returncode != 0:
             raise RuntimeError(f"compilation failed with error {result.returncode}")
     
+    downstreamStartTime = time.perf_counter()
+
     moduleName = os.path.basename(fileName)[0]
     
     # make sure to add cl.exe to PATH on windows so ninja can find it.
     _add_msvc_to_env_var()
 
     slangLib = load(name=moduleName, sources=[cppOutName,cudaOutName])
+
+    downstreamEndTime = time.perf_counter()
+
+    if verbose:
+        print(f"Slang compilation time: {downstreamStartTime-compileStartTime}s")
+        print(f'Downstream compile time: {downstreamEndTime-downstreamStartTime}')
+        
     return slangLib
