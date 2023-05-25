@@ -6,6 +6,7 @@ import glob
 import hashlib
 import json
 import re
+import time
 
 from torch.utils.cpp_extension import load
 
@@ -95,6 +96,8 @@ def loadModule(fileName, skipSlang=False, verbose=False, defines={}):
 
     options = [f"-D{key}={value}" for (key, value) in defines.items()]
 
+    compileStartTime = time.perf_counter()
+
     if not(skipSlang and os.path.exists(cppOutName)):
         result = subprocess.run([slangc_path, fileName, *options, '-o', cppOutName, '-target', 'torch-binding'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         slangcOutput = result.stderr.decode('utf-8')
@@ -110,6 +113,8 @@ def loadModule(fileName, skipSlang=False, verbose=False, defines={}):
             print(slangcOutput)
         if result.returncode != 0:
             raise RuntimeError(f"compilation failed with error {result.returncode}")
+        
+    downstreamStartTime = time.perf_counter()
     
     baseModuleName = os.path.splitext(os.path.basename(fileName))[0]
     if options_hash:
@@ -122,4 +127,11 @@ def loadModule(fileName, skipSlang=False, verbose=False, defines={}):
     _add_msvc_to_env_var()
 
     slangLib = load(name=moduleName, sources=[cppOutName,cudaOutName])
+
+    downstreamEndTime = time.perf_counter()
+
+    if verbose:
+        print(f"Slang compilation time: {downstreamStartTime-compileStartTime}s")
+        print(f'Downstream compile time: {downstreamEndTime-downstreamStartTime}')
+        
     return slangLib
