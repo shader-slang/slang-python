@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "slangpy"
-version = "0.2.9"
+version = "1.0.0"
 dependencies = [
   "torch>=1.1.0",
   "hatchling>=1.11.0",
