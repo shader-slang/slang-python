@@ -99,7 +99,12 @@ def loadModule(fileName, skipSlang=False, verbose=False, defines={}):
     compileStartTime = time.perf_counter()
 
     if not(skipSlang and os.path.exists(cppOutName)):
-        result = subprocess.run([slangc_path, fileName, *options, '-o', cppOutName, '-target', 'torch-binding'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        compileCommand = [slangc_path, fileName, *options, '-o', cppOutName, 
+                          '-target', 'torch-binding', '-line-directive-mode', 'none']
+        if verbose:
+            print("Building Host Module: ", " ".join(compileCommand))
+
+        result = subprocess.run(compileCommand, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         slangcOutput = result.stderr.decode('utf-8')
         if slangcOutput.strip():
             print(slangcOutput)
@@ -107,7 +112,11 @@ def loadModule(fileName, skipSlang=False, verbose=False, defines={}):
             raise RuntimeError(f"compilation failed with error {result.returncode}")
     
     if not(skipSlang and os.path.exists(cudaOutName)):
-        result = subprocess.run([slangc_path, fileName, *options, '-o', cudaOutName ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        compileCommand = [slangc_path, fileName, *options, '-o', cudaOutName, '-line-directive-mode', 'none']
+        if verbose:
+            print("Building Kernel Module: ", " ".join(compileCommand))
+
+        result = subprocess.run(compileCommand, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         slangcOutput = result.stderr.decode('utf-8')
         if slangcOutput.strip():
             print(slangcOutput)
@@ -126,7 +135,7 @@ def loadModule(fileName, skipSlang=False, verbose=False, defines={}):
     # make sure to add cl.exe to PATH on windows so ninja can find it.
     _add_msvc_to_env_var()
 
-    slangLib = load(name=moduleName, sources=[cppOutName,cudaOutName])
+    slangLib = load(name=moduleName, sources=[cppOutName,cudaOutName], verbose=verbose)
 
     downstreamEndTime = time.perf_counter()
 
