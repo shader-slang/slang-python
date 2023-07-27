@@ -87,9 +87,11 @@ def loadModule(fileName, skipSlang=False, verbose=False, defines={}):
         options_hash = None
     
     parent_folder = os.path.dirname(fileName)
-    output_folder = os.path.join(parent_folder, ".slangpy_cache")
+    base_name_wo_ext = os.path.splitext(os.path.basename(fileName))[0]
+    output_folder = os.path.join(parent_folder, ".slangpy_cache", base_name_wo_ext)
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
+
     base_name = os.path.basename(fileName)
     cppOutName = os.path.join(output_folder, _replaceFileExt(base_name, ".cpp", suffix=options_hash))
     cudaOutName = os.path.join(output_folder, _replaceFileExt(base_name, "_cuda.cu", suffix=options_hash))
@@ -135,7 +137,11 @@ def loadModule(fileName, skipSlang=False, verbose=False, defines={}):
     # make sure to add cl.exe to PATH on windows so ninja can find it.
     _add_msvc_to_env_var()
 
-    slangLib = load(name=moduleName, sources=[cppOutName,cudaOutName], verbose=verbose)
+    slangLib = load(
+        name=moduleName,
+        sources=[cppOutName, cudaOutName],
+        verbose=verbose,
+        build_directory=os.path.realpath(output_folder))
 
     downstreamEndTime = time.perf_counter()
 
