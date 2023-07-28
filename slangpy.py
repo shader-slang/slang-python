@@ -84,7 +84,7 @@ def _computeSlangHash(fileName, targetMode, options, verbose=False):
         print(f"Querying shader hash (target={targetMode}): ", " ".join(compileCommand))
 
     result = subprocess.run(compileCommand, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    
+
     if verbose:
         slangcOutput = result.stderr.decode('utf-8')
         if slangcOutput.strip():
@@ -217,39 +217,71 @@ def loadModule(fileName, skipSlang=False, verbose=False, defines={}):
     json.dump(metadata, open(metadataFile, 'w'))
 
     downstreamStartTime = time.perf_counter()
+
+    slangLib = None
     
     baseModuleName = convert_non_alphanumeric_to_underscore(
         os.path.splitext(os.path.basename(fileName))[0])
-    
-    # Construct a unique module name by incrementing a persistent counter
-    # for each module.
-    #
-    if loadModule._moduleCounterMap is None:
-        loadModule._moduleCounterMap = {}
-    
-    if baseModuleName not in loadModule._moduleCounterMap:
-        loadModule._moduleCounterMap[baseModuleName] = 0
-    else:
-        loadModule._moduleCounterMap[baseModuleName] += 1
-    
-    moduleName = f"{baseModuleName}_{loadModule._moduleCounterMap[baseModuleName]}"
-    
-    # make sure to add cl.exe to PATH on windows so ninja can find it.
-    _add_msvc_to_env_var()
 
-    slangLib = load(
-        name=moduleName,
-        sources=[cppOutName, cudaOutName],
-        verbose=verbose,
-        build_directory=os.path.realpath(outputFolder))
+    metadataHash = get_dictionary_hash(metadata)
+    cacheLookupKey = f"{baseModuleName}_{metadataHash}"
+
+    if loadModule._moduleCache is not None:
+        if cacheLookupKey in loadModule._moduleCache:
+            if verbose:
+                print(f"Skipping build. Using cached module ({cacheLookupKey})")
+            slangLib = loadModule._moduleCache[cacheLookupKey]
+        else:
+            if verbose:
+                print(f"Module cache miss ({cacheLookupKey})")
+    
+    if not slangLib:
+        # Construct a unique module name by incrementing a persistent counter
+        # for each module. This is to avoid errors when loading the same module
+        # multiple times in the same context.
+        #
+        if loadModule._moduleCounterMap is None:
+            loadModule._moduleCounterMap = {}
+        
+        if baseModuleName not in loadModule._moduleCounterMap:
+            loadModule._moduleCounterMap[baseModuleName] = 0
+        else:
+            loadModule._moduleCounterMap[baseModuleName] += 1
+        
+        # Append '_slangpy_' to avoid global namespace collisions.
+        moduleName = f"_slangpy_{baseModuleName}_{loadModule._moduleCounterMap[baseModuleName]}"
+        
+        # make sure to add cl.exe to PATH on windows so ninja can find it.
+        _add_msvc_to_env_var()
+
+        slangLib = load(
+            name=moduleName,
+            sources=[cppOutName, cudaOutName],
+            verbose=verbose,
+            build_directory=os.path.realpath(outputFolder))
+
+        loadModule._moduleCache[cacheLookupKey] = slangLib
 
     downstreamEndTime = time.perf_counter()
 
     if verbose:
-        print(f"Slang compilation time: {downstreamStartTime-compileStartTime:.3f}s")
+        print(f"Slang compile time: {downstreamStartTime-compileStartTime:.3f}s")
         print(f'Downstream compile time: {downstreamEndTime-downstreamStartTime:.3f}s')
         
     return slangLib
 
-# Initialize module counter map.
 loadModule._moduleCounterMap = {}
+loadModule._moduleCache = {}
+
+def clearSessionShaderCache():
+    loadModule._moduleCache = {}
+
+def clearPersistentShaderCache():
+    baseOutputFolder = os.path.join(package_dir, '.slangpy_cache')
+    if os.path.exists(baseOutputFolder):
+        import shutil
+        shutil.rmtree(baseOutputFolder)
+
+def clearShaderCache():
+    clearSessionShaderCache()
+    clearPersistentShaderCache()
