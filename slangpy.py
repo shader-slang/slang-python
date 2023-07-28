@@ -23,19 +23,19 @@ else:
     # Linux and other Unix-like systems
     executable_extension = ""
 
-slangc_path = os.path.join(
+slangcPath = os.path.join(
     package_dir, 'bin', 'slangc'+executable_extension)
 
 # If we have SLANGC_PATH set, use that instead
 if 'SLANGC_PATH' in os.environ:
-    slangc_path = os.environ['SLANGC_PATH']
+    slangcPath = os.environ['SLANGC_PATH']
 
 def _replaceFileExt(fileName, newExt, suffix=None):
-    base_name, old_extension = os.path.splitext(fileName)
+    baseName, old_extension = os.path.splitext(fileName)
     if suffix:
-        new_filename = base_name + suffix + newExt
+        new_filename = baseName + suffix + newExt
     else:
-        new_filename = base_name + newExt
+        new_filename = baseName + newExt
     return new_filename
 
 def find_cl():
@@ -62,77 +62,177 @@ def _add_msvc_to_env_var():
         if path_to_add not in os.environ["PATH"].split(os.pathsep):
             os.environ["PATH"] += os.pathsep + path_to_add
 
-def get_dictionary_hash(dictionary):
+def get_dictionary_hash(dictionary, truncate_at=16):
     # Convert dictionary to JSON string
-    json_string = json.dumps(dictionary, sort_keys=True)
+    jsonString = json.dumps(dictionary, sort_keys=True)
 
     # Compute SHA-256 hash of the JSON string
-    hash_object = hashlib.sha256(json_string.encode())
-    hash_code = hash_object.hexdigest()
+    hashObject = hashlib.sha256(jsonString.encode())
+    hashCode = hashObject.hexdigest()
 
-    return hash_code
+    # Truncate the hash code
+    return hashCode[:truncate_at]
 
 def convert_non_alphanumeric_to_underscore(name):
     converted_name = re.sub(r'\W+', '_', name)
     return converted_name
 
+def _computeSlangHash(fileName, targetMode, options, verbose=False):
+    compileCommand = [slangcPath, fileName, *options, 
+                      '-target', targetMode, '-line-directive-mode', 'none', '-report-hash-only', 'true']
+    if verbose:
+        print(f"Querying shader hash (target={targetMode}): ", " ".join(compileCommand))
+
+    result = subprocess.run(compileCommand, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    
+    if verbose:
+        slangcOutput = result.stderr.decode('utf-8')
+        if slangcOutput.strip():
+            print(slangcOutput)
+        
+    if result.returncode != 0:
+        raise RuntimeError(f"Query failed with error code {result.returncode}")
+    
+    hashCode = result.stdout.hex()
+    return hashCode
+
+def computeSlangHash(fileName, targetMode, options, verbose=False):
+    try:
+        return _computeSlangHash(fileName, targetMode, options, verbose)
+    except RuntimeError as err:
+        if verbose:
+            print(f"{err}")
+        return None
+
+def makeOptionsList(defines):
+    if defines is None:
+        return []
+    
+    defines = dict(defines)
+    return list([f"-D{key}={value}" for (key, value) in defines.items()])
+
 def loadModule(fileName, skipSlang=False, verbose=False, defines={}):
     if verbose:
-        print("loading slang module: " + fileName)
-        print("slangc location: " + slangc_path)
+        print(f"Loading slang module: {fileName}")
+        print(f"Using slangc.exe location: {slangcPath}")
 
     if defines:
-        options_hash = "-".join([get_dictionary_hash(defines)])
+        optionsHash = "-".join([get_dictionary_hash(defines, truncate_at=16)])
     else:
-        options_hash = None
+        optionsHash = None
     
-    parent_folder = os.path.dirname(fileName)
-    base_name_wo_ext = os.path.splitext(os.path.basename(fileName))[0]
-    output_folder = os.path.join(parent_folder, ".slangpy_cache", base_name_wo_ext)
-    if not os.path.exists(output_folder):
-        os.makedirs(output_folder)
+    parentFolder = os.path.dirname(fileName)
+    baseNameWoExt = os.path.splitext(os.path.basename(fileName))[0]
+    baseOutputFolder = os.path.join(parentFolder, ".slangpy_cache", baseNameWoExt)
 
-    base_name = os.path.basename(fileName)
-    cppOutName = os.path.join(output_folder, _replaceFileExt(base_name, ".cpp", suffix=options_hash))
-    cudaOutName = os.path.join(output_folder, _replaceFileExt(base_name, "_cuda.cu", suffix=options_hash))
+    # Specialize output folder with hash of the specialization parameters
+    outputFolder = os.path.join(baseOutputFolder, optionsHash)
 
-    options = [f"-D{key}={value}" for (key, value) in defines.items()]
+    if not os.path.exists(outputFolder):
+        os.makedirs(outputFolder)
 
+    # Try to find a metadata file "metadata.json" in outputFolder.
+    metadataFile = os.path.join(outputFolder, "metadata.json")
+    metadata = {}
+    if os.path.exists(metadataFile):
+        metadata = json.load(open(metadataFile, 'r'))
+
+    baseName = os.path.basename(fileName)
+    cppOutName = os.path.join(outputFolder, _replaceFileExt(baseName, ".cpp"))
+    cudaOutName = os.path.join(outputFolder, _replaceFileExt(baseName, "_cuda.cu"))
+
+    # Check if the defines match the cached metadata.
+    definesChanged = not (makeOptionsList(metadata.get("defines", None)) == makeOptionsList(defines))
+    if (verbose and os.path.exists(baseOutputFolder)) and definesChanged:
+        print("Cache miss (defines)!")
+
+    # Common options
+    options = makeOptionsList(defines)
+    
     compileStartTime = time.perf_counter()
 
-    if not(skipSlang and os.path.exists(cppOutName)):
-        compileCommand = [slangc_path, fileName, *options, '-o', cppOutName, 
+    # Check if the cpp & cuda target hashes have changed.
+    cppTargetHash = computeSlangHash(fileName, "torch-binding", options, verbose)
+    if cppTargetHash is not None:    
+        cppTargetChanged = not (metadata.get("cppTargetHash", None) == cppTargetHash)
+    else:
+        if verbose:
+            print("Failed to compute hash. Defaulting to cache miss")
+        cppTargetChanged = True
+
+    if (verbose and "cppTargetHash" in metadata.keys()) and cppTargetChanged:
+        print("Cache miss (host module)!")
+
+    cudaTargetHash = computeSlangHash(fileName, "cuda", options, verbose)
+    if cudaTargetHash is not None:    
+        cudaTargetChanged = not (metadata.get("cudaTargetHash", None) == cudaTargetHash)
+    else:
+        if verbose:
+            print("Failed to compute hash. Defaulting to cache miss")
+        cudaTargetChanged = True
+
+    if (verbose and "cudaTargetHash" in metadata.keys()) and cudaTargetChanged:
+        print("Cache miss (kernel module)!")
+
+    if cppTargetChanged or definesChanged:
+        compileCommand = [slangcPath, fileName, *options, '-o', cppOutName, 
                           '-target', 'torch-binding', '-line-directive-mode', 'none']
         if verbose:
             print("Building Host Module: ", " ".join(compileCommand))
 
         result = subprocess.run(compileCommand, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        slangcOutput = result.stderr.decode('utf-8')
-        if slangcOutput.strip():
-            print(slangcOutput)
+        slangcErr = result.stderr.decode('utf-8')
+        if slangcErr.strip():
+            print(slangcErr)
         if result.returncode != 0:
-            raise RuntimeError(f"compilation failed with error {result.returncode}")
+            raise RuntimeError(f"Compilation failed with error {result.returncode}")
+        
+        # Update metadata.
+        metadata["defines"] = defines
+        metadata["cppTargetHash"] = cppTargetHash
+    else:
+        if verbose:
+            print(f"Using cached host module ({cppTargetHash})")
     
-    if not(skipSlang and os.path.exists(cudaOutName)):
-        compileCommand = [slangc_path, fileName, *options, '-o', cudaOutName, '-line-directive-mode', 'none']
+    if cudaTargetChanged or definesChanged:
+        compileCommand = [slangcPath, fileName, *options, '-o', cudaOutName, '-line-directive-mode', 'none']
         if verbose:
             print("Building Kernel Module: ", " ".join(compileCommand))
 
         result = subprocess.run(compileCommand, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        slangcOutput = result.stderr.decode('utf-8')
-        if slangcOutput.strip():
-            print(slangcOutput)
+        slangcErr = result.stderr.decode('utf-8')
+        if slangcErr.strip():
+            print(slangcErr)
         if result.returncode != 0:
-            raise RuntimeError(f"compilation failed with error {result.returncode}")
+            raise RuntimeError(f"Compilation failed with error {result.returncode}")
         
+        # Update metadata.
+        metadata["defines"] = defines
+        metadata["cudaTargetHash"] = cudaTargetHash
+    else:
+        if verbose:
+            print(f"Using cached kernel module ({cudaTargetHash})")
+    
+    # Write metadata file.
+    json.dump(metadata, open(metadataFile, 'w'))
+
     downstreamStartTime = time.perf_counter()
     
-    baseModuleName = os.path.splitext(os.path.basename(fileName))[0]
-    if options_hash:
-        hash = hashlib.sha256("".join([baseModuleName, options_hash]).encode()).hexdigest()
+    baseModuleName = convert_non_alphanumeric_to_underscore(
+        os.path.splitext(os.path.basename(fileName))[0])
+    
+    # Construct a unique module name by incrementing a persistent counter
+    # for each module.
+    #
+    if loadModule._moduleCounterMap is None:
+        loadModule._moduleCounterMap = {}
+    
+    if baseModuleName not in loadModule._moduleCounterMap:
+        loadModule._moduleCounterMap[baseModuleName] = 0
     else:
-        hash = hashlib.sha256(baseModuleName.encode()).hexdigest()
-    moduleName = "".join([convert_non_alphanumeric_to_underscore(baseModuleName), hash])
+        loadModule._moduleCounterMap[baseModuleName] += 1
+    
+    moduleName = f"{baseModuleName}_{loadModule._moduleCounterMap[baseModuleName]}"
     
     # make sure to add cl.exe to PATH on windows so ninja can find it.
     _add_msvc_to_env_var()
@@ -141,12 +241,15 @@ def loadModule(fileName, skipSlang=False, verbose=False, defines={}):
         name=moduleName,
         sources=[cppOutName, cudaOutName],
         verbose=verbose,
-        build_directory=os.path.realpath(output_folder))
+        build_directory=os.path.realpath(outputFolder))
 
     downstreamEndTime = time.perf_counter()
 
     if verbose:
-        print(f"Slang compilation time: {downstreamStartTime-compileStartTime}s")
-        print(f'Downstream compile time: {downstreamEndTime-downstreamStartTime}')
+        print(f"Slang compilation time: {downstreamStartTime-compileStartTime:.3f}s")
+        print(f'Downstream compile time: {downstreamEndTime-downstreamStartTime:.3f}s')
         
     return slangLib
+
+# Initialize module counter map.
+loadModule._moduleCounterMap = {}
