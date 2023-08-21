@@ -68,3 +68,109 @@ class TestDeviceCast(unittest.TestCase):
         expected = torch.tensor([[11, 22],[33, 44]]).cpu()
 
         assert(torch.all(torch.eq(Z, expected)))
+
+class TestOptions(unittest.TestCase):
+    def test_load_different_options(self):
+        test_dir = os.path.dirname(os.path.abspath(__file__))
+        slangModuleFile = os.path.join(test_dir, 'multiply.slang')
+
+        module1 = slangpy.loadModule(slangModuleFile, defines={'FACTOR': '2.0'})
+        module2 = slangpy.loadModule(slangModuleFile, defines={'FACTOR': '1.0'})
+
+        X = torch.tensor([[1., 2.], [3., 4.]]).cuda()
+        Y1 = module1.multiply(X).cpu()
+        Y2 = module2.multiply(X).cpu()
+
+        expected1 = torch.tensor([[2., 4.],[6., 8.]]).cpu()
+        expected2 = torch.tensor([[1., 2.],[3., 4.]]).cpu()
+
+        assert(torch.all(torch.eq(Y1, expected1)))
+        assert(torch.all(torch.eq(Y2, expected2)))
+
+    def test_invalid_load(self):
+        test_dir = os.path.dirname(os.path.abspath(__file__))
+        slangModuleFile = os.path.join(test_dir, 'multiply.slang')
+
+        with self.assertRaises(RuntimeError):
+            module = slangpy.loadModule(slangModuleFile, defines={})
+
+class TestHotReload(unittest.TestCase):
+    def test_hot_reload(self):
+        test_dir = os.path.dirname(os.path.abspath(__file__))
+        slangModuleTemplateFile = os.path.join(test_dir, 'multiply_template.slang')
+
+        # Get a temporary directory.
+        import tempfile
+        tmpdir = tempfile.mkdtemp()
+
+        slangModuleFile = os.path.join(tmpdir, 'multiply.slang')
+
+        # Read template file, replace %FACTOR% with 2.0, and write to temporary directory.
+        with open(slangModuleTemplateFile, 'r') as f:
+            template = f.read()
+            template = template.replace(r'%FACTOR%', '2.0')
+            with open(slangModuleFile, 'w') as f2:
+                f2.write(template)
+
+        module1 = slangpy.loadModule(slangModuleFile)
+        X = torch.tensor([[1., 2.], [3., 4.]]).cuda()
+        Y1 = module1.multiply(X).cpu()
+        expected1 = torch.tensor([[2., 4.],[6., 8.]]).cpu()
+        assert(torch.all(torch.eq(Y1, expected1)))
+
+        # Read template file, replace %FACTOR% with 1.0, and write to temporary directory.
+        with open(slangModuleTemplateFile, 'r') as f:
+            template = f.read()
+            template = template.replace(r'%FACTOR%', '1.0')
+            with open(slangModuleFile, 'w') as f2:
+                f2.write(template)
+
+        module2 = slangpy.loadModule(slangModuleFile)
+        Y2 = module2.multiply(X).cpu()
+        expected2 = torch.tensor([[1., 2.],[3., 4.]]).cpu()
+        assert(torch.all(torch.eq(Y2, expected2)))
+
+
+class TestMultiFileModule(unittest.TestCase):
+    def test_multi_file_reload(self):
+        test_dir = os.path.dirname(os.path.abspath(__file__))
+
+        importModuleTemplateFile = os.path.join(test_dir, 'import-module.slang')
+        importedModuleTemplateFile = os.path.join(test_dir, 'imported-module.slang')
+
+        # Get a temporary directory.
+        import tempfile
+        import shutil
+        tmpdir = tempfile.mkdtemp()
+
+        importedModuleFile = os.path.join(tmpdir, 'imported-module.slang')
+        importModuleFile = os.path.join(tmpdir, 'import-module.slang')
+
+        # Read template file, replace %FACTOR% with 2.0, and write to temporary directory.
+        with open(importedModuleTemplateFile, 'r') as f:
+            template = f.read()
+            template = template.replace(r'%FACTOR%', '2.0')
+            with open(importedModuleFile, 'w') as f2:
+                f2.write(template)
+        # Simply copy the other template file to the temporary directory.
+        shutil.copy(importModuleTemplateFile, tmpdir)
+
+        module1 = slangpy.loadModule(importModuleFile)
+        X = torch.tensor([[1., 2.], [3., 4.]]).cuda()
+        Y1 = module1.multiply(X).cpu()
+        expected1 = torch.tensor([[2., 4.],[6., 8.]]).cpu()
+        assert(torch.all(torch.eq(Y1, expected1)))
+
+        # Read template file, replace %FACTOR% with 1.0, and write to temporary directory.
+        with open(importedModuleTemplateFile, 'r') as f:
+            template = f.read()
+            template = template.replace(r'%FACTOR%', '1.0')
+            with open(importedModuleFile, 'w') as f2:
+                f2.write(template)
+        
+        # Should trigger a recompile. If not, we'll see invalid results.
+
+        module2 = slangpy.loadModule(importModuleFile)
+        Y2 = module2.multiply(X).cpu()
+        expected2 = torch.tensor([[1., 2.],[3., 4.]]).cpu()
+        assert(torch.all(torch.eq(Y2, expected2)))
