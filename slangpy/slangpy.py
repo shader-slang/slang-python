@@ -8,7 +8,7 @@ import json
 import re
 import time
 
-from util import jit_compile
+from .util import jit_compile
 
 package_dir = pkg_resources.resource_filename(__name__, '')
 
