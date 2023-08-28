@@ -1,1 +1,5 @@
-from .slangpy import loadModule
+from .slangpy import (
+    loadModule,
+    clearPersistentShaderCache,
+    clearSessionShaderCache,
+    clearShaderCaches)

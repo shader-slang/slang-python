@@ -174,3 +174,32 @@ class TestMultiFileModule(unittest.TestCase):
         Y2 = module2.multiply(X).cpu()
         expected2 = torch.tensor([[1., 2.],[3., 4.]]).cpu()
         assert(torch.all(torch.eq(Y2, expected2)))
+
+
+class TestCacheState(unittest.TestCase):
+    def test_cache_state_on_build_failure(self):
+        test_dir = os.path.dirname(os.path.abspath(__file__))
+        slangModuleSourceFile = os.path.join(test_dir, 'multiply.slang')
+
+        # Get a temporary directory.
+        import tempfile
+        tmpdir = tempfile.mkdtemp()
+
+        slangModuleFile = os.path.join(tmpdir, 'multiply.slang')
+
+        # Copy the source file to the temporary directory.
+        import shutil
+        shutil.copy(slangModuleSourceFile, slangModuleFile)
+
+        # Expect a RuntimeError (define is not set)
+        with self.assertRaises(RuntimeError):
+            slangpy.loadModule(slangModuleFile)
+        
+        # Run again, should succeed assuming the cache is in proper state.
+        module = slangpy.loadModule(slangModuleFile, defines={'FACTOR': '2.0'})
+
+        X = torch.tensor([[1., 2.], [3., 4.]]).cuda()
+        Y1 = module.multiply(X).cpu()
+        expected1 = torch.tensor([[2., 4.],[6., 8.]]).cpu()
+        assert(torch.all(torch.eq(Y1, expected1)))
+        
