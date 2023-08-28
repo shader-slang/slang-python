@@ -28,5 +28,5 @@ classifiers = [
 
 [tool.hatch.build]
 ignore-vcs = true
-include = ["slangpy/*.py", "bin/*", "slangpy/util/*.py"]
+include = ["slangpy/*.py", "slangpy/bin/*", "slangpy/util/*.py"]
 exclude = [".github/**", "tests/*.*", "build.bat", "build-package.sh", ".gitignore", "tmp/**"]
