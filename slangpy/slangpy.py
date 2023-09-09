@@ -8,7 +8,7 @@ import json
 import re
 import time
 
-from util import jit_compile
+from .util import jit_compile
 
 package_dir = pkg_resources.resource_filename(__name__, '')
 
@@ -103,9 +103,7 @@ def getLatestDir(moduleKey, baseDir):
         with open(latestFile, 'r') as f:
             latestBuildID = int(f.read())
     else:
-        latestBuildID = 0
-        with open(latestFile, 'w') as f:
-            f.write("0")
+        return None
     
     return makeBuildDirPath(baseDir, latestBuildID)
 
@@ -118,21 +116,23 @@ def getOrCreateUniqueDir(moduleKey, baseDir):
         with open(latestFile, 'r') as f:
             latestBuildID = int(f.read())
     else:
-        latestBuildID = 0
-        with open(latestFile, 'w') as f:
-            f.write("0")
+        latestBuildID = None
 
     targetBuildID = getUniqueSessionVersion(moduleKey)
     
-    if targetBuildID == latestBuildID:
-        # If targetBuildID is the same as latestBuildID, we can reuse the same clone.
+    targetDir = None
+    if (latestBuildID is None) or targetBuildID == latestBuildID:
+        # If latestBuildID is None, then we are building the first version of this module.
+        # If targetBuildID is the same as latestBuildID, the contents will simply
+        # be reused by the ninja build system.
+        # 
         dirname = makeBuildDirPath(baseDir, targetBuildID)
 
-        # The directory should already exist, but if not, just make it.
+        # Create the directory if it doesn't exist (this happens if latestBuildID is None)
         if not os.path.exists(dirname):
             os.makedirs(dirname)
 
-        return dirname
+        targetDir = dirname
     else:
         # Copy all contents of the latestBuildID folder to the targetBuildID folder.
         # including metadata!
@@ -146,12 +146,12 @@ def getOrCreateUniqueDir(moduleKey, baseDir):
 
         import distutils.dir_util
         distutils.dir_util.copy_tree(latestDir, targetDir)
-
-        # Update latest.txt
-        with open(latestFile, 'w') as f:
-            f.write(str(targetBuildID))
-        
-        return targetDir
+    
+    # Update latest.txt
+    with open(latestFile, 'w') as f:
+        f.write(str(targetBuildID))
+    
+    return targetDir
 
 def compileSlang(metadata, fileName, targetMode, options, outputFile, verbose=False, dryRun=False):
     needsRecompile = False
@@ -313,10 +313,19 @@ def _compileAndLoadModule(metadata, sources, moduleName, buildDir, verbose=False
     # make sure to add cl.exe to PATH on windows so ninja can find it.
     _add_msvc_to_env_var()
 
+    extra_cflags = None
+    # If windows, add /std:c++17 to extra_cflags
+    if sys.platform == "win32":
+        extra_cflags = ["/std:c++17"]
+    
+    # If linux/darwin, add -std=c++17 to extra_cflags
+    if sys.platform == "linux" or sys.platform == "darwin":
+       extra_cflags = ["-std=c++17"]
+
     return jit_compile(
         moduleName,
         sources,
-        extra_cflags=None,
+        extra_cflags=extra_cflags,
         extra_cuda_cflags=None,
         extra_ldflags=None,
         extra_include_paths=None,
@@ -433,14 +442,20 @@ def loadModule(fileName, skipSlang=None, verbose=False, defines={}):
     # Dry run with latest build dir
     buildDir = getLatestDir(outputFolder, outputFolder)
 
-    if verbose:
-        print(f"Dry-run using latest build directory: {buildDir}", file=sys.stderr)
+    if buildDir is not None:
+        if verbose:
+            print(f"Dry-run using latest build directory: {buildDir}", file=sys.stderr)
 
-    needsRecompile = _loadModule(fileName, moduleName, buildDir, options, sourceDir=outputFolder, verbose=verbose, dryRun=True)
+        needsRecompile = _loadModule(fileName, moduleName, buildDir, options, sourceDir=outputFolder, verbose=verbose, dryRun=True)
+    else:
+        if verbose:
+            print(f"No latest build directory.", file=sys.stderr)
+
+        needsRecompile = True
 
     if needsRecompile:
         if verbose:
-            print("Rebuild required. Creating unique build directory", file=sys.stderr)
+            print("Build required. Creating unique build directory", file=sys.stderr)
         # Handle versioning
         buildDir = getOrCreateUniqueDir(outputFolder, outputFolder)
     else:
