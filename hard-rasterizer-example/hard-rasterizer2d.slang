@@ -114,7 +114,7 @@ Maybe<Intersection> intersectSegmentAABB(AABB aabb, float2 u, float2 v)
     float2 box_pos = (aabb.low + aabb.high) * 0.5;
     float2 box_half = (aabb.high - aabb.low) * 0.5;
 
-    float2 delta = u - v;
+    float2 delta = v - u;
     float scaleX = 1.0 / delta.x;
     float scaleY = 1.0 / delta.y;
     float signX = _sign(scaleX);
@@ -124,24 +124,19 @@ Maybe<Intersection> intersectSegmentAABB(AABB aabb, float2 u, float2 v)
     float farTimeX = (box_pos.x + signX * box_half.x - u.x) * scaleX;
     float farTimeY = (box_pos.y + signY * box_half.y - u.y) * scaleY;
 
-    printf("nearTimeX: %f\n", nearTimeX);
-    printf("nearTimeY: %f\n", nearTimeY);
-    printf("farTimeX: %f\n", farTimeX);
-    printf("farTimeY: %f\n", farTimeY);
-
     if (nearTimeX > farTimeY || nearTimeY > farTimeX)
         return Maybe<Intersection>::none();
 
     float nearTime = nearTimeX > nearTimeY ? nearTimeX : nearTimeY;
     float farTime = farTimeX < farTimeY ? farTimeX : farTimeY;
-
-    printf("nearTime: %f\n", nearTime);
-    printf("farTime: %f\n", farTime);
     
     if (nearTime >= 1 || farTime <= 0)
         return Maybe<Intersection>::none();
 
-    return Maybe<Intersection>::some({u + nearTime * delta, v + farTime * delta});
+    if (isnan(nearTime) || isnan(farTime))
+        return Maybe<Intersection>::none();
+
+    return Maybe<Intersection>::some({u + nearTime * delta, u + farTime * delta});
 }
 
 struct Triangle : IDifferentiable
@@ -190,7 +185,7 @@ struct Triangle : IDifferentiable
         float isect_weight = length(isect.isect_far - isect.isect_near);
 
         // Sample from intersected segment.
-        float2 segment_sample = isect.isect_near + sample1D * isect_weight;
+        float2 segment_sample = isect.isect_near + sample1D * (isect.isect_far - isect.isect_near);
 
         // Relative position of the sample on the segment.
         float relpos = dot(b - a, segment_sample - a) / dot(b - a, b - a);
@@ -199,8 +194,8 @@ struct Triangle : IDifferentiable
         float2 edge_sample = detach(relpos) * b + (1.0 - detach(relpos)) * a;
 
         // Construct normal orientation for the sample.
-        float2 t = b - a;
-        float2 n = float2(-t.y, t.x);
+        float2 t = a - b;
+        float2 n = normalize(float2(-t.y, t.x));
 
         return Maybe<EdgeSample>::some({edge_sample, n, isect_weight});
     }
@@ -209,9 +204,13 @@ struct Triangle : IDifferentiable
     [PreferRecompute]
     Maybe<EdgeSample> sampleFromBoundary(float sample1D, AABB bboxWorld)
     {
-        // Split sample1D into 6.
-        int outerSample = (int)(floor(sample1D * 6)); 
-        float innerSample1D = sample1D - outerSample * 6;
+        // Split sample1D into 6 divisions, and stretch each division to [0,1)
+        // The index of the division acts as a die roll to pick between the three edges.
+        // We use 6 since its a multiple of both 2 and 3, allowing us to use the same sample
+        // for both the 2- and 3-edge cases.
+        //
+        int outerSample = (int)(floor(sample1D * 6));
+        float innerSample1D = (fmod(sample1D, 1.f/6.f)) * 6.f;
 
         // Sample from three edges of the triangle.
         Maybe<EdgeSample> sample1 = sampleFromEdge(v1, v2, innerSample1D, bboxWorld);
@@ -247,7 +246,7 @@ struct Triangle : IDifferentiable
 
 [Differentiable]
 [PreferRecompute]
-float infinitesimal(float v)
+float2 infinitesimal(float2 v)
 {
     return v - detach(v);    
 }
@@ -287,18 +286,19 @@ float3 render_pixel(no_diff float2 pixel,
     float sample_1d = no_diff prng.nextFloat1D();
     var bsample_maybe = triangle.sampleFromBoundary(
         sample_1d,
-        camera.screenToWorld({ pixel - 0.5f, pixel + 0.5f }));
-
+        camera.screenToWorld({ pixel - 0.0f, pixel + 1.0f }));
+        
     if (bsample_maybe.is_valid)
     {
         EdgeSample bsample = bsample_maybe.value;
         float2 weighted_pt = camera.worldToScreen(bsample.pt) * bsample.weight;
 
         let eps = 0.001f;
-        float4 delta_contrib = triangle.shade(bsample.pt + eps * bsample.n) -
-                               triangle.shade(bsample.pt - eps * bsample.n);
-
-        result += infinitesimal(dot(weighted_pt, bsample.n)) * delta_contrib;
+        float4 delta_contrib = detach(
+            triangle.shade(bsample.pt - eps * bsample.n) -
+            triangle.shade(bsample.pt + eps * bsample.n));
+        float4 b_result = dot(infinitesimal(weighted_pt), bsample.n) * delta_contrib;
+        result += b_result;
     }
 
     // Blend with the background color.
@@ -366,6 +366,79 @@ TorchTensor<float3> rasterize(
 }
 
 [CudaKernel]
+void rasterizer_kernel_fwd(
+    TensorView<float> vertices,
+    TensorView<float> d_vertices,
+    TensorView<float> color,
+    TensorView<float> d_color,
+    TensorView<float3> d_output,
+    TensorView<int> rng_state)
+{
+    uint3 globalIdx = cudaBlockIdx() * cudaBlockDim() + cudaThreadIdx();
+
+    if (globalIdx.x > d_output.size(0) || globalIdx.y > d_output.size(1))
+        return;
+
+    PRNG prng = PRNG(reinterpret<uint, int>(rng_state[globalIdx.xy]));
+
+    float2 v1 = float2(vertices[uint2(0, 0)], vertices[uint2(0, 1)]);
+    float2 v2 = float2(vertices[uint2(1, 0)], vertices[uint2(1, 1)]);
+    float2 v3 = float2(vertices[uint2(2, 0)], vertices[uint2(2, 1)]);
+    float3 c = float3(color[0], color[1], color[2]);
+
+    float2 dv1 = float2(d_vertices[uint2(0, 0)], d_vertices[uint2(0, 1)]);
+    float2 dv2 = float2(d_vertices[uint2(1, 0)], d_vertices[uint2(1, 1)]);
+    float2 dv3 = float2(d_vertices[uint2(2, 0)], d_vertices[uint2(2, 1)]);
+    float3 dc = float3(d_color[0], d_color[1], d_color[2]);
+
+    // Setup default image parameters..
+    Camera camera = { float2(0.0, 0.0), float2(1.0, 1.0), float2(d_output.size(0), d_output.size(1)) };
+
+    Triangle triangle = { v1, v2, v3, c, 0.02 };
+    Triangle.Differential d_triangle = { dv1, dv2, dv3, dc, 0.0 };
+    DifferentialPair<Triangle> dp_triangle = diffPair(triangle, d_triangle);
+
+    var dpOutColor = fwd_diff(render_pixel)(
+        globalIdx.xy,
+        camera,
+        dp_triangle,
+        prng);
+
+    // Update the random number generator state.
+    rng_state[globalIdx.xy] = reinterpret<int, uint>(prng.state);
+
+    // Update the output.
+    d_output[globalIdx.xy] = dpOutColor.d;
+}
+
+[TorchEntryPoint]
+TorchTensor<float3> rasterize_fwd(
+    uint x_size, uint y_size,
+    TorchTensor<float> vertices,
+    TorchTensor<float> d_vertices,
+    TorchTensor<float> color,
+    TorchTensor<float> d_color,
+    TorchTensor<int> rng_state)
+{
+    // Compute block count with a group size of (16, 16, 1)
+    uint3 blockSize = uint3(16, 16, 1);
+    uint3 blockCount = uint3(
+        (x_size + (blockSize.x - 1)) / blockSize.x, (y_size + (blockSize.y - 1)) / blockSize.y, 1);
+
+    var d_output = TorchTensor<float3>.alloc(x_size, y_size);
+    // Launch the kernel.
+    __dispatch_kernel(rasterizer_kernel_fwd, blockCount, blockSize)(
+        vertices,
+        d_vertices,
+        color,
+        d_color,
+        d_output,
+        rng_state);
+    
+    return d_output;
+}
+
+[CudaKernel]
 void rasterizer_kernel_bwd(
     TensorView<float> vertices,
     TensorView<float> d_vertices,
@@ -400,16 +473,16 @@ void rasterizer_kernel_bwd(
         d_output[globalIdx.xy]);
     
     float oldVal;
-    d_vertices.InterlockedAdd(uint2(0, 0), WaveActiveSum(dp_triangle.d.v1.x), oldVal);
-    d_vertices.InterlockedAdd(uint2(0, 1), WaveActiveSum(dp_triangle.d.v1.y), oldVal);
-    d_vertices.InterlockedAdd(uint2(1, 0), WaveActiveSum(dp_triangle.d.v2.x), oldVal);
-    d_vertices.InterlockedAdd(uint2(1, 1), WaveActiveSum(dp_triangle.d.v2.y), oldVal);
-    d_vertices.InterlockedAdd(uint2(2, 0), WaveActiveSum(dp_triangle.d.v3.x), oldVal);
-    d_vertices.InterlockedAdd(uint2(2, 1), WaveActiveSum(dp_triangle.d.v3.y), oldVal);
+    d_vertices.InterlockedAdd(uint2(0, 0), dp_triangle.d.v1.x, oldVal);
+    d_vertices.InterlockedAdd(uint2(0, 1), dp_triangle.d.v1.y, oldVal);
+    d_vertices.InterlockedAdd(uint2(1, 0), dp_triangle.d.v2.x, oldVal);
+    d_vertices.InterlockedAdd(uint2(1, 1), dp_triangle.d.v2.y, oldVal);
+    d_vertices.InterlockedAdd(uint2(2, 0), dp_triangle.d.v3.x, oldVal);
+    d_vertices.InterlockedAdd(uint2(2, 1), dp_triangle.d.v3.y, oldVal);
 
-    d_color.InterlockedAdd(0, WaveActiveSum(dp_triangle.d.color.x), oldVal);
-    d_color.InterlockedAdd(1, WaveActiveSum(dp_triangle.d.color.y), oldVal);
-    d_color.InterlockedAdd(2, WaveActiveSum(dp_triangle.d.color.z), oldVal);
+    d_color.InterlockedAdd(0, dp_triangle.d.color.x, oldVal);
+    d_color.InterlockedAdd(1, dp_triangle.d.color.y, oldVal);
+    d_color.InterlockedAdd(2, dp_triangle.d.color.z, oldVal);
 
     // Update the random number generator state.
     rng_state[globalIdx.xy] = reinterpret<int, uint>(prng.state);

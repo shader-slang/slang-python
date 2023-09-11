@@ -210,16 +210,16 @@ void rasterizer_kernel_bwd(
         d_output[globalIdx.xy]);
 
     float oldVal;
-    d_vertices.InterlockedAdd(uint2(0, 0), WaveActiveSum(v1pair.d.x), oldVal);
-    d_vertices.InterlockedAdd(uint2(0, 1), WaveActiveSum(v1pair.d.y), oldVal);
-    d_vertices.InterlockedAdd(uint2(1, 0), WaveActiveSum(v2pair.d.x), oldVal);
-    d_vertices.InterlockedAdd(uint2(1, 1), WaveActiveSum(v2pair.d.y), oldVal);
-    d_vertices.InterlockedAdd(uint2(2, 0), WaveActiveSum(v3pair.d.x), oldVal);
-    d_vertices.InterlockedAdd(uint2(2, 1), WaveActiveSum(v3pair.d.y), oldVal);
+    d_vertices.InterlockedAdd(uint2(0, 0), v1pair.d.x, oldVal);
+    d_vertices.InterlockedAdd(uint2(0, 1), v1pair.d.y, oldVal);
+    d_vertices.InterlockedAdd(uint2(1, 0), v2pair.d.x, oldVal);
+    d_vertices.InterlockedAdd(uint2(1, 1), v2pair.d.y, oldVal);
+    d_vertices.InterlockedAdd(uint2(2, 0), v3pair.d.x, oldVal);
+    d_vertices.InterlockedAdd(uint2(2, 1), v3pair.d.y, oldVal);
 
-    d_color.InterlockedAdd(uint2(0), WaveActiveSum(cpair.d.x), oldVal);
-    d_color.InterlockedAdd(uint2(1), WaveActiveSum(cpair.d.y), oldVal);
-    d_color.InterlockedAdd(uint2(2), WaveActiveSum(cpair.d.z), oldVal);
+    d_color.InterlockedAdd(uint2(0), cpair.d.x, oldVal);
+    d_color.InterlockedAdd(uint2(1), cpair.d.y, oldVal);
+    d_color.InterlockedAdd(uint2(2), cpair.d.z, oldVal);
 }
 
 [TorchEntryPoint]

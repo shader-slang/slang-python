@@ -5,6 +5,10 @@ import timeit
 import os
 import matplotlib.pyplot as plt
 from torch.autograd import Function
+import torch.nn.functional as F
+import sys
+import matplotlib.animation as animation
+import time
 
 os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
 
@@ -12,33 +16,57 @@ vertices = torch.tensor([[0.5,-0.5], [-0.5,0.5], [-0.5,-0.5]]).type(torch.float)
 color = torch.tensor([0.8, 0.3, 0.3]).type(torch.float).cuda()
 
 def setup_rasterizer():
-    rasterizer2d = slangpy.loadModule("hard_rasterizer2d.slang", verbose=True)
+    rasterizer2d = slangpy.loadModule("hard-rasterizer2d.slang")
 
     class Rasterizer2d(Function):
         @staticmethod
-        def forward(width, height, vertices, color):
-            outputImage = rasterizer2d.rasterize(width, height, vertices, color)
-            return outputImage
+        def forward(ctx, width, height, vertices, color, rng_state=None):
+            if rng_state is None:
+                rng_state = torch.randint(-2**31, 2**31, (width, height), dtype=torch.int32).cuda()
 
-        @staticmethod
-        def setup_context(ctx, inputs, output):
-            width, height, vertices, color = inputs
-            return ctx.save_for_backward(vertices, color)
+            ctx.save_for_backward(vertices, color, rng_state)
+
+            outputImage = rasterizer2d.rasterize(width, height, vertices, color, rng_state)
+            return outputImage
         
         @staticmethod
         def backward(ctx, grad_output):
-            vertices, color = ctx.saved_tensors 
+            vertices, color, rng_state = ctx.saved_tensors 
             grad_vertices = torch.zeros_like(vertices)
             grad_color = torch.zeros_like(color)
             width, height = grad_output.shape[0], grad_output.shape[1]
-            # Timing.
+            grad_output = grad_output.contiguous()
+
             start = timeit.default_timer()
-            rasterizer2d.rasterize_bwd(width, height, vertices, grad_vertices, color, grad_color, grad_output)
+            rasterizer2d.rasterize_bwd(
+                width, height,
+                vertices, grad_vertices,
+                color, grad_color,
+                grad_output,
+                rng_state)
             end = timeit.default_timer()
+
             print("Backward pass: %f seconds" % (end - start))
+
             return None, None, grad_vertices, grad_color
     
     return Rasterizer2d()
+
+def pyramid_loss(outputImage, targetImage, levels=6):
+    # Iteratively scale down the target image and compute the loss.
+    loss = 0.0
+    for i in range(levels):
+        # Compute the loss.
+        level_weight = (2 ** i)
+        loss += torch.mean((outputImage - targetImage) ** 2) * level_weight
+
+        # Scale down the target image.
+        targetImage = F.avg_pool2d(targetImage, kernel_size=2, stride=2)
+
+        # Scale down the output image.
+        outputImage = F.avg_pool2d(outputImage, kernel_size=2, stride=2)
+
+    return loss / levels
 
 rasterizer = setup_rasterizer()
 
@@ -52,35 +80,62 @@ learningRate = 5e-3
 numIterations = 400
 
 # Initialize our parameters.
-vertices = torch.tensor([[0.5,-0.5], [-0.5,0.5], [-0.5,-0.5]]).type(torch.float).cuda()
+vertices = torch.tensor([[0.1,-0.1], [-0.1,0.1], [-0.1,-0.1]]).type(torch.float).cuda() + 1e-5
 vertices.requires_grad = True
 color = torch.tensor([0.8, 0.3, 0.3]).type(torch.float).cuda()
 color.requires_grad = True
 
+# Setup our optimizer.
+optimizer = torch.optim.Adam([vertices, color], lr=learningRate)
+
+# Convert to channels form.
+targetImage_ch = targetImage.permute(2, 0, 1)[None, :, :, :]
+
+fig = plt.figure()
+
+ax1 = fig.add_subplot(131)
+ax2 = fig.add_subplot(132)
+ax3 = fig.add_subplot(133)
+
+def set_grad(var):
+    def hook(grad):
+        var.grad = grad
+    return hook
+
+rasterizer2d_core = slangpy.loadModule("hard-rasterizer2d.slang")
+
 # Run our training loop.
-for i in range(numIterations):
+def optimize(i):
     print("Iteration %d" % i)
+
     # Forward pass: render the image.
     outputImage = rasterizer.apply(1024, 1024, vertices, color)
+    outputImage.register_hook(set_grad(outputImage))
 
-    # Compute the loss.
-    loss = torch.mean((outputImage - targetImage) ** 2)
+    # Convert to channels form.
+    outputImage_ch = outputImage.permute(2, 0, 1)[None, :, :, :]
+
+    # Compute an image pyramid loss.
+    loss = pyramid_loss(outputImage_ch, targetImage_ch, levels=4)
 
     # Backward pass: compute the gradients.
     loss.backward()
 
     # Update the parameters.
-    with torch.no_grad():
-        # Update vertices.
-        vertices -= learningRate * vertices.grad
-        vertices.grad.zero_()
+    optimizer.step()
+    
+    if i % 10 == 0:
+        ax1.clear()
+        ax1.imshow(outputImage.permute(1, 0, 2).detach().cpu().numpy(), origin='lower', extent=[-1, 1, -1, 1])
+        ax2.clear()
+        ax2.imshow(outputImage.grad[:,:,1].T.detach().cpu().numpy(), origin='lower', extent=[-1, 1, -1, 1])
+        ax3.clear()
+        ax3.imshow(targetImage.permute(1, 0, 2).detach().cpu().numpy(), origin='lower', extent=[-1, 1, -1, 1])
 
-        # Update color.
-        color -= learningRate * color.grad
-        color.grad.zero_()
+    # Zero the gradients.
+    optimizer.zero_grad()
 
-        print(vertices)
-        print(color)
 
-plt.imshow(outputImage.detach().cpu().numpy())
-plt.show()
+ani = animation.FuncAnimation(fig, optimize, frames=numIterations, interval=10)
+writer = animation.FFMpegWriter(fps=30) 
+ani.save('rasterizer2d.mp4', writer=writer)
