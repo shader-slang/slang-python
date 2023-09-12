@@ -142,10 +142,22 @@ We should be able to mark a method with `[PyBindCUDAFwdDiff(Auto)]` and/or `[PyB
 [CudaKernel]
 void sqr(DiffTensorViewAA<float> input, DiffTensorViewAA<float> output)
 {
-   // Write primal code..
+   float3 globalIdx = cudaGlobalIdx();
+   if (globalIdx.x > input.shape[0])
+      return;
+
+   output[globalIdx.x] = input[globalIdx.x] * input[globalIdx.x];
 }
 
-// --- Synthesized ---- In addition to the synthesis for [PyBindCUDA(Auto)]
+// --- Synthesized ----
+
+// Host-side binding for primal
+void pybind_sqr(TorchTensor<float> input, TorchTensor<float> output)
+{
+    var input_tensorview = TensorView<float>.from_tensor(input);
+    var output_tensorview = TensorView<float>.from_tensor(output);
+    __dispatch_kernel(sqr)(input, output);
+}
 
 // Slang method that calls the fwd-deriv.
 void sqr_fwd(DiffTensorViewAA<float> input, DiffTensorViewAA<float> output)
@@ -153,10 +165,19 @@ void sqr_fwd(DiffTensorViewAA<float> input, DiffTensorViewAA<float> output)
     fwd_diff(sqr)(input, output);
 }
 
-// Entry point method
-void pybind_sqr_fwd(uint3 __pybindcuda_blockSize, uint3 __pybindcuda_gridSize, TorchTensor<float> input, TorchTensor<float> output)
+// Host-side method for _fwd (note that tensors have become tuples, the python side
+// also expects tuples)
+// 
+void pybind_sqr_fwd(uint3 __pybindcuda_blockSize, uint3 __pybindcuda_gridSize,
+      std::tuple<TorchTensor<float>, TorchTensor<float>> input,
+      std::tuple<TorchTensor<float>, TorchTensor<float>> output)
 {
-    __dispatch_kernel(sqr_fwd, gridSize, blockSize)(input, output);
+    var input_tensorview = DiffTensorViewAA<float>.from_tensor(input[0], input[1]);
+    var output_tensorview = DiffTensorViewAA<float>.from_tensor(output[0], output[1]);
+    __dispatch_kernel(
+         sqr_fwd,
+         __pybindcuda_blockSize,
+         __pybindcuda_gridSize)(input_tensorview, output_tensorview);
 }
 
 // Reflection code.
@@ -164,11 +185,49 @@ Py::List pybind_sqr_fwd_funcinfo()
 {
     // Name of the input for (kwargs)
     return Py::Tuple(
-        Py::List("__pybindcuda_blockSize", "__pybindcuda_gridSize", "input", "output")); 
+        Py::List("__pybindcuda_blockSize", "__pybindcuda_gridSize", "input", "output"),
+        Py::None(),
+        Py::None());
+}
+
+// Slang method that calls the bwd-deriv.
+void sqr_bwd(DiffTensorViewAA<float> input, DiffTensorViewAA<float> output)
+{
+    bwd_diff(sqr)(input, output);
+}
+
+// Host-side method for _fwd (note that tensors have become tuples, the python side
+// also expects tuples)
+// 
+void pybind_sqr_bwd(uint3 __pybindcuda_blockSize, uint3 __pybindcuda_gridSize,
+      std::tuple<TorchTensor<float>, TorchTensor<float>> input,
+      std::tuple<TorchTensor<float>, TorchTensor<float>> output)
+{
+    var input_tensorview = DiffTensorViewAA<float>.from_tensor(input[0], input[1]);
+    var output_tensorview = DiffTensorViewAA<float>.from_tensor(output[0], output[1]);
+    __dispatch_kernel(
+         sqr_bwd,
+         __pybindcuda_blockSize,
+         __pybindcuda_gridSize)(input_tensorview, output_tensorview);
+}
+
+// Reflection code.
+Py::List pybind_sqr_bwd_funcinfo()
+{
+    // Name of the input for (kwargs)
+    return Py::Tuple(
+        Py::List("__pybindcuda_blockSize", "__pybindcuda_gridSize", "input", "output"),
+        Py::None(),
+        Py::None());
 }
 
 // Binding code.
-PYBIND11("sqr_fwd", pybind_sqr_fwd);
-PYBIND11("sqr_fwd_funcinfo", pybind_sqr_fwd_funcinfo);
+PYBIND11("sqr_bwd", pybind_sqr_bwd);
+PYBIND11("sqr_bwd_funcinfo", pybind_sqr_bwd_funcinfo);
 
 ```
+
+We disallow `out` & `inout` modifiers on tensor objects when used with [PyBindCUDA]
+Can use other types/struct types (non-tensor), but they will not produce a derivative for now when used with [PyBindCUDA].
+Future: we can return the derivatives of arbitrarily-typed inputs as a `namedtuple`, if required.
+
