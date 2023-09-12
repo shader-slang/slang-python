@@ -199,20 +199,20 @@ void sqr_bwd(DiffTensorViewAA<float> input, DiffTensorViewAA<float> output)
 // Host-side method for _fwd (note that tensors have become tuples, the python side
 // also expects tuples)
 // 
-void pybind_sqr_fwd(uint3 __pybindcuda_blockSize, uint3 __pybindcuda_gridSize,
+void pybind_sqr_bwd(uint3 __pybindcuda_blockSize, uint3 __pybindcuda_gridSize,
       std::tuple<TorchTensor<float>, TorchTensor<float>> input,
       std::tuple<TorchTensor<float>, TorchTensor<float>> output)
 {
     var input_tensorview = DiffTensorViewAA<float>.from_tensor(input[0], input[1]);
     var output_tensorview = DiffTensorViewAA<float>.from_tensor(output[0], output[1]);
     __dispatch_kernel(
-         sqr_fwd,
+         sqr_bwd,
          __pybindcuda_blockSize,
          __pybindcuda_gridSize)(input_tensorview, output_tensorview);
 }
 
 // Reflection code.
-Py::List pybind_sqr_fwd_funcinfo()
+Py::List pybind_sqr_bwd_funcinfo()
 {
     // Name of the input for (kwargs)
     return Py::Tuple(
@@ -222,8 +222,8 @@ Py::List pybind_sqr_fwd_funcinfo()
 }
 
 // Binding code.
-PYBIND11("sqr_fwd", pybind_sqr_fwd);
-PYBIND11("sqr_fwd_funcinfo", pybind_sqr_fwd_funcinfo);
+PYBIND11("sqr_bwd", pybind_sqr_bwd);
+PYBIND11("sqr_bwd_funcinfo", pybind_sqr_bwd_funcinfo);
 
 ```
 
