@@ -9,6 +9,7 @@ import re
 import time
 
 from .util import jit_compile
+from .util import wrapModule
 
 package_dir = pkg_resources.resource_filename(__name__, '')
 
@@ -464,7 +465,8 @@ def loadModule(fileName, skipSlang=None, verbose=False, defines={}):
     if verbose:
         print(f"Working folder: {buildDir}", file=sys.stderr)
 
-    return _loadModule(fileName, moduleName, buildDir, options, sourceDir=outputFolder, verbose=verbose, dryRun=False)
+    rawModule = _loadModule(fileName, moduleName, buildDir, options, sourceDir=outputFolder, verbose=verbose, dryRun=False)
+    return wrapModule(rawModule)
 
 def clearSessionShaderCache():
     compileAndLoadModule._moduleCache = {}

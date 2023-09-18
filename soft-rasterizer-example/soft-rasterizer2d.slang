@@ -155,7 +155,7 @@ TorchTensor<float3> rasterize(
 {
     var result = TorchTensor<float3>.alloc(x_size, y_size);
 
-    // Compute block count with a group size of (32, 32, 1), the maximum.
+    // Compute block count.
     uint3 blockSize = uint3(16, 16, 1);
     uint3 blockCount = uint3(
         (x_size + (blockSize.x - 1)) / blockSize.x, (y_size + (blockSize.y - 1)) / blockSize.y, 1);
