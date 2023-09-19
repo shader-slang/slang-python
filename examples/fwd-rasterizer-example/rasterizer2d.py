@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 
 os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
 
-rasterizer2d = slangpy.loadModule("rasterizer2d.slang")
+rasterizer2d = slangpy.loadModule("rasterizer2d.slang", verbose=True)
 
 vertices = torch.tensor([[0.5,-0.5], [-0.5,0.5], [-0.5,-0.5]]).type(torch.float).cuda()
 color = torch.tensor([0.8, 0.3, 0.3]).type(torch.float).cuda()
