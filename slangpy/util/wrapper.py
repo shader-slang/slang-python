@@ -6,34 +6,46 @@ import torch
 from .builtin_wrappers import wrappers as builtin_wrappers
 
 class LaunchableObject(object):
-    def __init__(self, dispatch_fn) -> None:
+    def __init__(self, dispatch_fn, name, no_warnings=False) -> None:
         self.dispatch_fn = dispatch_fn
+        self.name = name
+        self.no_warnings = no_warnings
+        self.has_launched = False
 
     def launchRaw(self, blockSize: Tuple[int, int, int], gridSize: Tuple[int, int, int]):
         # validate inputs blockSize and gridSize should
         # be an iterable of 3 integers
-        if not isinstance(blockSize, tuple) or len(blockSize) != 3:
-            raise ValueError("blockSize should be a tuple of 3 integers")
+        if not isinstance(blockSize, tuple) or len(blockSize) != 3 or (not all(isinstance(x, int) for x in blockSize)):
+            raise ValueError(f"blockSize should be a tuple of 3 integers. Got: {blockSize}")
         
-        if not isinstance(gridSize, tuple) or len(gridSize) != 3:
-            raise ValueError("gridSize should be a tuple of 3 integers")
+        if not isinstance(gridSize, tuple) or len(gridSize) != 3 or (not all(isinstance(x, int) for x in gridSize)):
+            raise ValueError(f"gridSize should be a tuple of 3 integers. Got: {gridSize}")
 
         # TODO: Do other validation here (blockSize should be <= device max threads per block, etc.)
+
+        # Set state to "launched". This is used to warn the user if they forget to launch the kernel
+        self.has_launched = True
 
         # Dispatch
         return self.dispatch_fn(blockSize, gridSize)
 
     def launchTotal(self, blockSize: Tuple[int, int, int], totalSize: Tuple[int, int, int]):
         # Calculates gridSize from totalSize & blockSize
-        raise NotImplementedError("launchTotal not implemented yet")
+        raise NotImplementedError("launchTotal not implemented yet. Use launchRaw(blockSize, gridSize) instead.")
 
     def autoLaunch(self, totalSize: Tuple[int, int, int]):
         # Launches kernel with the largest possible block size, by querying device shared memory size
         # and using kernel metadata
         #
-        raise NotImplementedError("autoLaunch not implemented yet")
+        raise NotImplementedError("autoLaunch not implemented yet. Use launchRaw(blockSize, gridSize) instead.")
 
-
+    def __del__(self):
+        if not self.has_launched and not self.no_warnings:
+            print("\033[93m", end="")
+            print(f"[slangpy] [Warning] LaunchableObject('{self.name}') was never launched. "
+                  f"Invoke launchRaw()/launchTotal()/autoLaunch() to run the kernel.")
+            print("\033[0m", end="")
+        
 class WrappedFunction(object):
     def __init__(self, fn_name, fn_handle, argnames, argwrappers, fwd_wrapped_fn = None, bwd_wrapped_fn = None) -> None:
         self.fn_handle = fn_handle
@@ -81,7 +93,8 @@ class WrappedFunction(object):
         arglist = tuple(self.kwargs_to_arglist(**kwargs))
         arglist = self.process_arglist(arglist)
         return LaunchableObject(
-            lambda blockSize, gridSize: self.fn_handle(*((blockSize, gridSize) + arglist)))
+            lambda blockSize, gridSize: self.fn_handle(*((blockSize, gridSize) + arglist)),
+            name=self.fn_name)
 
     def fwd(self, *args, **kwargs):
         if self.fwd_wrapped_fn is None:

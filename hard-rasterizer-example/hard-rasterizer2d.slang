@@ -311,10 +311,12 @@ float3 render_pixel(no_diff float2 pixel,
 // ---- Boilerplate code for kernel entry point + launch parameters ----
 
 [CudaKernel]
-void rasterizer_kernel(
-    TensorView<float> vertices,
-    TensorView<float> color,
-    TensorView<float3> output,
+[Differentiable]
+[AutoPyBindCUDA]
+void rasterize(
+    DiffTensorView vertices,
+    DiffTensorView color,
+    DiffTensorView output,
     TensorView<int> rng_state)
 {
     uint3 globalIdx = cudaBlockIdx() * cudaBlockDim() + cudaThreadIdx();
@@ -327,11 +329,11 @@ void rasterizer_kernel(
     // Load vertices of our triangle.
     // Assume our input tensor is of the form (3, 2) where 3 is the number of vertices
     // and 2 is the number of coordinates per vertex.
-    // 
-    float2 v1 = float2(vertices[uint2(0, 0)], vertices[uint2(0, 1)]);
-    float2 v2 = float2(vertices[uint2(1, 0)], vertices[uint2(1, 1)]);
-    float2 v3 = float2(vertices[uint2(2, 0)], vertices[uint2(2, 1)]);
-    float3 c = float3(color[0], color[1], color[2]);
+    //
+    float2 v1 = float2(vertices.load(uint2(0, 0)), vertices.load(uint2(0, 1)));
+    float2 v2 = float2(vertices.load(uint2(1, 0)), vertices.load(uint2(1, 1)));
+    float2 v3 = float2(vertices.load(uint2(2, 0)), vertices.load(uint2(2, 1)));
+    float3 c = float3(color.load(0), color.load(1), color.load(2));
     
     // Setup default image parameters..
     Camera camera = { float2(0.0, 0.0), float2(1.0, 1.0), float2(output.size(0), output.size(1)) };
@@ -339,12 +341,15 @@ void rasterizer_kernel(
     Triangle triangle = { v1, v2, v3, c, 0.02 };
 
     // Compute value for each pixel.
-    output[globalIdx.xy] = render_pixel(globalIdx.xy, camera, triangle, prng);
+    float3 color = render_pixel(globalIdx.xy, camera, triangle, prng);
+    output.store(uint3(globalIdx.xy, 0), color.x);
+    output.store(uint3(globalIdx.xy, 1), color.y);
+    output.store(uint3(globalIdx.xy, 2), color.z);
 
     // Update the random number generator state.
     rng_state[globalIdx.xy] = reinterpret<int, uint>(prng.state);
 }
-
+/*
 [TorchEntryPoint]
 TorchTensor<float3> rasterize(
     uint x_size, uint y_size,
@@ -511,4 +516,4 @@ void rasterize_bwd(
         d_color,
         d_output,
         rng_state);
-}
+}*/

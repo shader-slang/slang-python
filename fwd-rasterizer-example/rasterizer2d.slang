@@ -46,8 +46,9 @@ float3 render_pixel(float2 pixel, float2 frameDim, float2 o, float2 scale,
     return result / 4.0f;
 }
 
+[AutoPyBindCUDA]
 [CudaKernel]
-void rasterizer_kernel(
+void rasterize(
     TensorView<float> vertices,
     TensorView<float> color,
     TensorView<float3> output)
@@ -79,22 +80,4 @@ void rasterizer_kernel(
 
     // Compute value for each pixel.
     output[globalIdx.xy] = render_pixel(globalIdx.xy, frameDim, o, scale, v1, v2, v3, c);
-}
-
-[TorchEntryPoint]
-TorchTensor<float3> rasterize(
-    uint x_size, uint y_size,
-    TorchTensor<float> vertices,
-    TorchTensor<float> color)
-{
-    var result = TorchTensor<float3>.alloc(x_size, y_size);
-
-    // Compute block count with a group size of (32, 32, 1), the maximum.
-    uint3 blockCount = uint3((x_size + 31) / 32, (y_size + 31) / 32, 1);
-    uint3 groupSize = uint3(32, 32, 1);
-
-    // Launch the kernel.
-    __dispatch_kernel(rasterizer_kernel, blockCount, groupSize)(vertices, color, result);
-
-    return result;
 }

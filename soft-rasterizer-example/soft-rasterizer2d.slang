@@ -110,10 +110,12 @@ float3 render_pixel(no_diff float2 pixel, no_diff float2 frameDim, no_diff float
 }
 
 [CudaKernel]
-void rasterizer_kernel(
-    TensorView<float> vertices,
-    TensorView<float> color,
-    TensorView<float3> output)
+[Differentiable]
+[AutoPyBindCUDA]
+void rasterize(
+    DiffTensorView vertices,
+    DiffTensorView color,
+    DiffTensorView output)
 {
     uint3 globalIdx = cudaBlockIdx() * cudaBlockDim() + cudaThreadIdx();
 
@@ -123,11 +125,11 @@ void rasterizer_kernel(
     // Load vertices of our triangle.
     // Assume our input tensor is of the form (3, 2) where 3 is the number of vertices
     // and 2 is the number of coordinates per vertex.
-    // 
-    float2 v1 = float2(vertices[uint2(0, 0)], vertices[uint2(0, 1)]);
-    float2 v2 = float2(vertices[uint2(1, 0)], vertices[uint2(1, 1)]);
-    float2 v3 = float2(vertices[uint2(2, 0)], vertices[uint2(2, 1)]);
-    float3 c = float3(color[0], color[1], color[2]);
+    //
+    float2 v1 = float2(vertices.load(uint2(0, 0)), vertices.load(uint2(0, 1)));
+    float2 v2 = float2(vertices.load(uint2(1, 0)), vertices.load(uint2(1, 1)));
+    float2 v3 = float2(vertices.load(uint2(2, 0)), vertices.load(uint2(2, 1)));
+    float3 c = float3(color.load(0), color.load(1), color.load(2));
     
     // Setup default image parameters..
 
@@ -144,103 +146,8 @@ void rasterizer_kernel(
     float sigma = 0.02;
 
     // Compute value for each pixel.
-    output[globalIdx.xy] = render_pixel(globalIdx.xy, frameDim, o, scale, v1, v2, v3, c, sigma);
-}
-
-[TorchEntryPoint]
-TorchTensor<float3> rasterize(
-    uint x_size, uint y_size,
-    TorchTensor<float> vertices,
-    TorchTensor<float> color)
-{
-    var result = TorchTensor<float3>.alloc(x_size, y_size);
-
-    // Compute block count.
-    uint3 blockSize = uint3(16, 16, 1);
-    uint3 blockCount = uint3(
-        (x_size + (blockSize.x - 1)) / blockSize.x, (y_size + (blockSize.y - 1)) / blockSize.y, 1);
-
-    // Launch the kernel.
-    __dispatch_kernel(rasterizer_kernel, blockCount, blockSize)(vertices, color, result);
-
-    return result;
-}
-
-[CudaKernel]
-void rasterizer_kernel_bwd(
-    TensorView<float> vertices,
-    TensorView<float> d_vertices,
-    TensorView<float> color,
-    TensorView<float> d_color,
-    TensorView<float3> d_output)
-{
-    uint3 globalIdx = cudaBlockIdx() * cudaBlockDim() + cudaThreadIdx();
-
-    if (globalIdx.x > d_output.size(0) || globalIdx.y > d_output.size(1))
-        return;
-
-    // Load vertices of our triangle.
-    // Assume our input tensor is of the form (3, 2) where 3 is the number of vertices
-    // and 2 is the number of coordinates per vertex.
-    //
-    DifferentialPair<float2> v1pair = diffPair(float2(vertices[uint2(0, 0)], vertices[uint2(0, 1)]));
-    DifferentialPair<float2> v2pair = diffPair(float2(vertices[uint2(1, 0)], vertices[uint2(1, 1)]));
-    DifferentialPair<float2> v3pair = diffPair(float2(vertices[uint2(2, 0)], vertices[uint2(2, 1)]));
-    DifferentialPair<float3> cpair = diffPair(float3(color[0], color[1], color[2]));
-
-    // Setup default image parameters..
-
-    // Image size (size of the output tensor)
-    float2 frameDim = float2(d_output.size(0), d_output.size(1));
-
-    // Center point of the image
-    float2 o = float2(0.0, 0.0);
-
-    // Scale of the image
-    float2 scale = float2(1.0, 1.0);
-
-    // Sigma for the sigmoid function
-    float sigma = 0.02;
-
-    bwd_diff(render_pixel)(
-        globalIdx.xy,
-        frameDim, o, scale,
-        v1pair, v2pair, v3pair,
-        cpair, sigma, 
-        d_output[globalIdx.xy]);
-
-    float oldVal;
-    d_vertices.InterlockedAdd(uint2(0, 0), v1pair.d.x, oldVal);
-    d_vertices.InterlockedAdd(uint2(0, 1), v1pair.d.y, oldVal);
-    d_vertices.InterlockedAdd(uint2(1, 0), v2pair.d.x, oldVal);
-    d_vertices.InterlockedAdd(uint2(1, 1), v2pair.d.y, oldVal);
-    d_vertices.InterlockedAdd(uint2(2, 0), v3pair.d.x, oldVal);
-    d_vertices.InterlockedAdd(uint2(2, 1), v3pair.d.y, oldVal);
-
-    d_color.InterlockedAdd(uint2(0), cpair.d.x, oldVal);
-    d_color.InterlockedAdd(uint2(1), cpair.d.y, oldVal);
-    d_color.InterlockedAdd(uint2(2), cpair.d.z, oldVal);
-}
-
-[TorchEntryPoint]
-void rasterize_bwd(
-    uint x_size, uint y_size,
-    TorchTensor<float> vertices,
-    TorchTensor<float> d_vertices,
-    TorchTensor<float> color,
-    TorchTensor<float> d_color,
-    TorchTensor<float3> d_output)
-{
-    // Compute block count with a group size of (16, 16, 1)
-    uint3 blockSize = uint3(16, 16, 1);
-    uint3 blockCount = uint3(
-        (x_size + (blockSize.x - 1)) / blockSize.x, (y_size + (blockSize.y - 1)) / blockSize.y, 1);
-
-    // Launch the kernel.
-    __dispatch_kernel(rasterizer_kernel_bwd, blockCount, blockSize)(
-        vertices, 
-        d_vertices,
-        color,
-        d_color,
-        d_output);
+    float3 color = render_pixel(globalIdx.xy, frameDim, o, scale, v1, v2, v3, c, sigma);
+    output.store(uint3(globalIdx.xy, 0), color.x);
+    output.store(uint3(globalIdx.xy, 1), color.y);
+    output.store(uint3(globalIdx.xy, 2), color.z);
 }

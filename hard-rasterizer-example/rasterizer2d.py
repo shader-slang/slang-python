@@ -24,26 +24,33 @@ def setup_rasterizer():
             if rng_state is None:
                 rng_state = torch.randint(-2**31, 2**31, (width, height), dtype=torch.int32).cuda()
 
-            ctx.save_for_backward(vertices, color, rng_state)
+            output = torch.zeros((width, height, 3), dtype=torch.float).cuda()
 
-            outputImage = rasterizer2d.rasterize(width, height, vertices, color, rng_state)
-            return outputImage
+            kernel_with_args = rasterizer2d.rasterize(vertices=vertices, color=color, output=output, rng_state=rng_state)
+            kernel_with_args.launchRaw(blockSize=(16, 16, 1), gridSize=((width + 15)//16, (height + 15)//16, 1))
+            
+            ctx.save_for_backward(vertices, color, output, rng_state)
+            return output
         
         @staticmethod
         def backward(ctx, grad_output):
-            vertices, color, rng_state = ctx.saved_tensors 
+            vertices, color, output, rng_state = ctx.saved_tensors 
+
             grad_vertices = torch.zeros_like(vertices)
             grad_color = torch.zeros_like(color)
+
             width, height = grad_output.shape[0], grad_output.shape[1]
             grad_output = grad_output.contiguous()
 
             start = timeit.default_timer()
-            rasterizer2d.rasterize_bwd(
-                width, height,
-                vertices, grad_vertices,
-                color, grad_color,
-                grad_output,
-                rng_state)
+
+            kernel_with_args = rasterizer2d.rasterize.bwd(
+                vertices=(vertices, grad_vertices),
+                color=(color, grad_color),
+                output=(output, grad_output),
+                rng_state=rng_state)
+            kernel_with_args.launchRaw(blockSize=(16, 16, 1), gridSize=((width + 15)//16, (height + 15)//16, 1))
+
             end = timeit.default_timer()
 
             print("Backward pass: %f seconds" % (end - start))
