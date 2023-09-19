@@ -276,6 +276,7 @@ class TestAutoPyBindDiff(unittest.TestCase):
 
         # Test call by named tuple
         X_d = torch.zeros_like(X).cuda()
+        Y_d = torch.tensor([1., 0., 1., 0.]).cuda()
         self.module.square.bwd(
             A=self.module.DiffTensorView(value=X, grad=X_d),
             result=self.module.DiffTensorView(value=Y, grad=Y_d)).launchRaw(blockSize=(32, 1, 1), gridSize=(1, 1, 1))
