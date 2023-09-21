@@ -196,7 +196,7 @@ def wrapModule(module):
             else:
                 bwdDiffFn = None
             
-            primalFnName = name.removeprefix("__funcinfo__")
+            primalFnName = name[len("__funcinfo__"):]
             # Create a wrapped function
             wrappedFn = WrappedFunction(
                 primalFnName,
