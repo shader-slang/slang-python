@@ -175,7 +175,6 @@ class TestMultiFileModule(unittest.TestCase):
         expected2 = torch.tensor([[1., 2.],[3., 4.]]).cpu()
         assert(torch.all(torch.eq(Y2, expected2)))
 
-
 class TestCacheState(unittest.TestCase):
     def test_cache_state_on_build_failure(self):
         test_dir = os.path.dirname(os.path.abspath(__file__))
@@ -202,4 +201,136 @@ class TestCacheState(unittest.TestCase):
         Y1 = module.multiply(X).cpu()
         expected1 = torch.tensor([[2., 4.],[6., 8.]]).cpu()
         assert(torch.all(torch.eq(Y1, expected1)))
+
+
+class TestAutoPyBind(unittest.TestCase):
+    def test_autopybind(self):
+        test_dir = os.path.dirname(os.path.abspath(__file__))
+        slangModuleSourceFile = os.path.join(test_dir, 'autobind-square.slang')
         
+        module = slangpy.loadModule(slangModuleSourceFile)
+
+        X = torch.tensor([[1., 2.], [3., 4.]]).cuda()
+        Y = torch.zeros_like(X).cuda()
+
+        module.square(A=X, result=Y).launchRaw(blockSize=(32, 32, 1), gridSize=(1, 1, 1))
+        expected1 = torch.tensor([[1., 4.],[9., 16.]]).cpu()
+
+        assert(torch.all(torch.eq(Y.cpu(), expected1)))
+
+class TestAutoPyBindDiff(unittest.TestCase):
+    def setUp(self) -> None:
+        test_dir = os.path.dirname(os.path.abspath(__file__))
+        slangModuleSourceFile = os.path.join(test_dir, 'autobind-square-diff.slang')
+        
+        module = slangpy.loadModule(slangModuleSourceFile)
+        self.module = module
+        
+    def test_primal_call(self):
+        X = torch.tensor([1., 2., 3., 4.]).cuda()
+        expected = torch.tensor([1., 4., 9., 16.]).cpu()
+        
+        # Test call by direct argument
+        Y = torch.zeros_like(X).cuda()
+        self.module.square(A=X, result=Y).launchRaw(blockSize=(32, 1, 1), gridSize=(1, 1, 1))
+        assert(torch.all(torch.eq(Y.cpu(), expected)))
+
+        # Test call by singleton tuple
+        Y = torch.zeros_like(X).cuda()
+        self.module.square(A=(X,), result=(Y,)).launchRaw(blockSize=(32, 1, 1), gridSize=(1, 1, 1))
+        assert(torch.all(torch.eq(Y.cpu(), expected)))
+
+    def test_fwd_diff(self):
+        X = torch.tensor([1., 2., 3., 4.]).cuda()
+        X_d = torch.tensor([1., 0., 0., 1.]).cuda()
+        expected = torch.tensor([1., 4., 9., 16.]).cpu()
+        expected_d = torch.tensor([2., 0., 0., 8.]).cpu()
+        
+        # Test call by direct argument
+        Y = torch.zeros_like(X).cuda()
+        Y_d = torch.zeros_like(X_d).cuda()
+        self.module.square.fwd(A=(X, X_d), result=(Y, Y_d)).launchRaw(blockSize=(32, 1, 1), gridSize=(1, 1, 1))
+        assert(torch.all(torch.eq(Y.cpu(), expected)))
+        assert(torch.all(torch.eq(Y_d.cpu(), expected_d)))
+
+        # Test call by named tuple
+        Y = torch.zeros_like(X).cuda()
+        Y_d = torch.zeros_like(X_d).cuda()
+        self.module.square.fwd(
+            A=self.module.DiffTensorView(value=X, grad=X_d),
+            result=self.module.DiffTensorView(value=Y, grad=Y_d)).launchRaw(blockSize=(32, 1, 1), gridSize=(1, 1, 1))
+        assert(torch.all(torch.eq(Y.cpu(), expected)))
+        assert(torch.all(torch.eq(Y_d.cpu(), expected_d)))
+    
+    def test_bwd_diff(self):
+        X = torch.tensor([1., 2., 3., 4.]).cuda()
+        Y = torch.zeros_like(X).cuda()
+        Y_d = torch.tensor([1., 0., 1., 0.]).cuda()
+        
+        expected_d = torch.tensor([2., 0., 6., 0.]).cpu()
+
+        # Test call by direct argument
+        X_d = torch.zeros_like(X).cuda()
+        self.module.square.bwd(A=(X, X_d), result=(Y, Y_d)).launchRaw(blockSize=(32, 1, 1), gridSize=(1, 1, 1))
+        assert(torch.all(torch.eq(X_d.cpu(), expected_d)))
+
+        # Test call by named tuple
+        X_d = torch.zeros_like(X).cuda()
+        Y_d = torch.tensor([1., 0., 1., 0.]).cuda()
+        self.module.square.bwd(
+            A=self.module.DiffTensorView(value=X, grad=X_d),
+            result=self.module.DiffTensorView(value=Y, grad=Y_d)).launchRaw(blockSize=(32, 1, 1), gridSize=(1, 1, 1))
+        assert(torch.all(torch.eq(X_d.cpu(), expected_d)))
+
+class TestAutoPyBindStruct(unittest.TestCase):
+    def setUp(self) -> None:
+        test_dir = os.path.dirname(os.path.abspath(__file__))
+        slangModuleSourceFile = os.path.join(test_dir, 'autobind-multiply-struct.slang')
+        
+        module = slangpy.loadModule(slangModuleSourceFile)
+        self.module = module
+
+    def test_struct_input(self):
+        # Test call struct by tuple
+        A = torch.tensor([[1., 2.], [3., 4.]]).cuda()
+        B = torch.tensor([[10., 20.], [30., 40.]]).cuda()
+        Y = torch.zeros_like(A).cuda()
+
+        self.module.multiply(foo=(A, B), result=Y).launchRaw(blockSize=(32, 32, 1), gridSize=(1, 1, 1))
+        expected1 = torch.tensor([[10., 40.],[90., 160.]]).cpu()
+
+        assert(torch.all(torch.eq(Y.cpu(), expected1)))
+
+        # Reset Y
+        Y = torch.zeros_like(A).cuda()
+
+        # Test call struct by dict
+        self.module.multiply(foo={'A': A, 'B': B}, result=Y).launchRaw(blockSize=(32, 32, 1), gridSize=(1, 1, 1))
+
+        assert(torch.all(torch.eq(Y.cpu(), expected1)))
+
+        # Reset Y
+        Y = torch.zeros_like(A).cuda()
+
+        # Test call struct by named tuple
+        footype = self.module.Foo
+        self.module.multiply(foo=footype(A=A, B=B), result=Y).launchRaw(blockSize=(32, 32, 1), gridSize=(1, 1, 1))
+        
+        assert(torch.all(torch.eq(Y.cpu(), expected1)))
+
+    def test_struct_failed_input(self):
+        A = torch.tensor([[1., 2.], [3., 4.]]).cuda()
+        B = torch.tensor([[10., 20.], [30., 40.]]).cuda()
+        Y = torch.zeros_like(A).cuda()
+
+        with self.assertRaises(TypeError):
+            self.module.multiply(foo=(A,), result=Y).launchRaw(blockSize=(32, 32, 1), gridSize=(1, 1, 1))
+        
+        with self.assertRaises(TypeError):
+            self.module.multiply(foo=(A, B, A), result=Y).launchRaw(blockSize=(32, 32, 1), gridSize=(1, 1, 1))
+        
+        with self.assertRaises(TypeError):
+            self.module.multiply(foo={'A': A}, result=Y).launchRaw(blockSize=(32, 32, 1), gridSize=(1, 1, 1))
+        
+        with self.assertRaises(TypeError):
+            self.module.multiply(foo={'A': A, 'Ba': B}, result=Y).launchRaw(blockSize=(32, 32, 1), gridSize=(1, 1, 1))

@@ -9,8 +9,10 @@ import re
 import time
 
 from .util import jit_compile
+from .util import wrapModule
 
-package_dir = pkg_resources.resource_filename(__name__, '')
+packageDir = pkg_resources.resource_filename(__name__, '')
+versionCode = my_version = pkg_resources.get_distribution('slangpy').version
 
 if sys.platform == "win32":
     # Windows
@@ -24,11 +26,17 @@ else:
     executable_extension = ""
 
 slangcPath = os.path.join(
-    package_dir, 'bin', 'slangc'+executable_extension)
+    packageDir, 'bin', 'slangc'+executable_extension)
 
 # If we have SLANGC_PATH set, use that instead
 if 'SLANGC_PATH' in os.environ:
     slangcPath = os.environ['SLANGC_PATH']
+
+# Ensure that slangcPath is a proper path
+slangcPath = os.path.realpath(slangcPath)
+
+if not os.path.exists(slangcPath):
+    raise RuntimeError(f"Could not find slangc executable at {slangcPath}")
 
 MODULE_VERSIONS = {}
 
@@ -40,6 +48,7 @@ def getUniqueSessionVersion(moduleKey):
     
     return MODULE_VERSIONS[moduleKey]
 
+
 def _replaceFileExt(fileName, newExt, suffix=None):
     baseName, old_extension = os.path.splitext(fileName)
     if suffix:
@@ -47,6 +56,7 @@ def _replaceFileExt(fileName, newExt, suffix=None):
     else:
         new_filename = baseName + newExt
     return new_filename
+
 
 def find_cl():
     # Look for cl.exe in the default installation path for Visual Studio
@@ -66,13 +76,38 @@ def find_cl():
     cl_path.sort(key=lambda x: os.path.getmtime(x), reverse=True)
     return cl_path[0]
 
+
 def _add_msvc_to_env_var():
     if sys.platform == 'win32':
         path_to_add = find_cl()
         if path_to_add not in os.environ["PATH"].split(os.pathsep):
             os.environ["PATH"] += os.pathsep + path_to_add
 
-def get_dictionary_hash(dictionary, truncate_at=16):
+
+def tryGetSlangDynamicLibraryPath():
+    # Search in the slangcPath directory for the slang dynamic library.
+    slangcDir = os.path.dirname(slangcPath)
+    slangcDir = os.path.realpath(slangcDir)
+
+    if sys.platform == "win32":
+        # Windows
+        slangLibPath = os.path.join(slangcDir, "slang.dll")
+    elif sys.platform == "darwin":
+        # macOS
+        slangLibPath = os.path.join(slangcDir, "libslang.dylib")
+    elif (sys.platform == "" or sys.platform == "linux"):
+        # Linux
+        slangLibPath = os.path.join(slangcDir, "libslang.so")
+    else:
+        return None
+
+    if os.path.exists(slangLibPath):
+        return slangLibPath
+    else:
+        return None
+
+
+def getDictionaryHash(dictionary, truncate_at=16):
     # Convert dictionary to JSON string
     jsonString = json.dumps(dictionary, sort_keys=True)
 
@@ -83,9 +118,11 @@ def get_dictionary_hash(dictionary, truncate_at=16):
     # Truncate the hash code
     return hashCode[:truncate_at]
 
-def convert_non_alphanumeric_to_underscore(name):
+
+def convertNonAlphaNumericToUnderscore(name):
     converted_name = re.sub(r'\W+', '_', name)
     return converted_name
+
 
 def makeOptionsList(defines):
     if defines is None:
@@ -94,8 +131,10 @@ def makeOptionsList(defines):
     defines = dict(defines)
     return list([f"-D{key}={value}" for (key, value) in defines.items()])
 
+
 def makeBuildDirPath(baseDir, buildID):
     return os.path.join(baseDir, f"{buildID}")
+
 
 def getLatestDir(moduleKey, baseDir):
     latestFile = os.path.join(baseDir, "latest.txt")
@@ -106,6 +145,7 @@ def getLatestDir(moduleKey, baseDir):
         return None
     
     return makeBuildDirPath(baseDir, latestBuildID)
+
 
 def getOrCreateUniqueDir(moduleKey, baseDir):
     # Check if buildDir has a latest.txt file. If so, read the contents.
@@ -153,8 +193,23 @@ def getOrCreateUniqueDir(moduleKey, baseDir):
     
     return targetDir
 
+
 def compileSlang(metadata, fileName, targetMode, options, outputFile, verbose=False, dryRun=False):
     needsRecompile = False
+
+    # If version either doesn't exist or is different, we need to recompile.
+    if metadata and metadata.get("version", None):
+        oldVersion = metadata["version"]
+        if verbose:
+            print("Checking slangpy version... ", file=sys.stderr)
+        if oldVersion != versionCode:
+            if verbose:
+                print(f"Version is different \"{oldVersion}\" => \"{versionCode}\". Needs recompile.", file=sys.stderr)
+            needsRecompile = True
+    else:
+        if verbose:
+            print("Version number missing. Needs recompile ", file=sys.stderr)
+        needsRecompile = True
 
     # If any of the depfiles are newer than outputFile, we need to recompile.
     if metadata and metadata.get("deps"):
@@ -199,6 +254,7 @@ def compileSlang(metadata, fileName, targetMode, options, outputFile, verbose=Fa
     else:
         return False, (metadata if not dryRun else None)
 
+
 def _compileSlang(metadata, fileName, targetMode, options, outputFile, verbose=False):
     # Create a temporary depfile path.
     depFile = f"{outputFile}.d.out"
@@ -221,11 +277,19 @@ def _compileSlang(metadata, fileName, targetMode, options, outputFile, verbose=F
     
     deps = parseDepfile(depFile)
 
+    # Add slangc executable & dynamic library location & mtime to the dependency list.
+    deps.append((slangcPath, os.path.getmtime(slangcPath)))
+
+    slangLibPath = tryGetSlangDynamicLibraryPath()
+    if slangLibPath is not None:
+        deps.append((slangLibPath, os.path.getmtime(slangLibPath)))
+
     # Erase depfile.
     os.remove(depFile)
 
     # Update metadata.
-    return { "options": options, "deps": deps}
+    return {"options": options, "deps": deps, "version": versionCode}
+
 
 def compileAndLoadModule(metadata, sources, moduleName, buildDir, verbose=False, dryRun=False):
     needsRebuild = False
@@ -238,14 +302,14 @@ def compileAndLoadModule(metadata, sources, moduleName, buildDir, verbose=False,
         if os.path.exists(moduleBinary):
             for source in sources:
                 if verbose:
-                    print("Checking source: ", source, file=sys.stderr)
+                    print("Checking dependency: ", source, file=sys.stderr)
                     
                 if not os.path.exists(source):
-                    raise RuntimeError(f"Source file {source} does not exist")
+                    raise RuntimeError(f"Dependency {source} does not exist")
 
                 if os.path.getmtime(source) > os.path.getmtime(moduleBinary):
                     if verbose:
-                        print("Source file is newer than module binary. Rebuilding.", file=sys.stderr)
+                        print("Dependency is newer than module binary. Rebuilding.", file=sys.stderr)
                     needsRebuild = True
                     break
         else:
@@ -307,7 +371,9 @@ def compileAndLoadModule(metadata, sources, moduleName, buildDir, verbose=False,
 
     return slangLib, newMetadata
 
+
 compileAndLoadModule._moduleCache = {}
+
 
 def _compileAndLoadModule(metadata, sources, moduleName, buildDir, verbose=False):
     # make sure to add cl.exe to PATH on windows so ninja can find it.
@@ -336,6 +402,7 @@ def _compileAndLoadModule(metadata, sources, moduleName, buildDir, verbose=False
         keep_intermediates=True,
         with_cuda=None)
 
+
 def parseDepfile(depFile):
     with open(depFile, 'r') as f:
         depFileContents = f.readlines()
@@ -352,6 +419,7 @@ def parseDepfile(depFile):
         allDepFiles.extend(depFilesWithTimestamps)
 
     return allDepFiles
+
 
 def _loadModule(fileName, moduleName, outputFolder, options, sourceDir=None, verbose=False, dryRun=False):
 
@@ -408,7 +476,8 @@ def _loadModule(fileName, moduleName, outputFolder, options, sourceDir=None, ver
         print(f'Downstream compile time: {downstreamEndTime-downstreamStartTime:.3f}s', file=sys.stderr)
     
     return slangLib
-            
+
+
 def loadModule(fileName, skipSlang=None, verbose=False, defines={}):
     # Print warning
     if skipSlang is not None:
@@ -419,9 +488,9 @@ def loadModule(fileName, skipSlang=None, verbose=False, defines={}):
         print(f"Using slangc.exe location: {slangcPath}", file=sys.stderr)
 
     if defines:
-        optionsHash = get_dictionary_hash(defines, truncate_at=16)
+        optionsHash = getDictionaryHash(defines, truncate_at=16)
     else:
-        optionsHash = get_dictionary_hash({}, truncate_at=16)
+        optionsHash = getDictionaryHash({}, truncate_at=16)
     
     parentFolder = os.path.dirname(fileName)
     baseNameWoExt = os.path.splitext(os.path.basename(fileName))[0]
@@ -437,7 +506,7 @@ def loadModule(fileName, skipSlang=None, verbose=False, defines={}):
     options = makeOptionsList(defines)
 
     # Module name
-    moduleName = f"_slangpy_{convert_non_alphanumeric_to_underscore(baseNameWoExt)}_{optionsHash}"
+    moduleName = f"_slangpy_{convertNonAlphaNumericToUnderscore(baseNameWoExt)}_{optionsHash}"
     
     # Dry run with latest build dir
     buildDir = getLatestDir(outputFolder, outputFolder)
@@ -464,16 +533,20 @@ def loadModule(fileName, skipSlang=None, verbose=False, defines={}):
     if verbose:
         print(f"Working folder: {buildDir}", file=sys.stderr)
 
-    return _loadModule(fileName, moduleName, buildDir, options, sourceDir=outputFolder, verbose=verbose, dryRun=False)
+    rawModule = _loadModule(fileName, moduleName, buildDir, options, sourceDir=outputFolder, verbose=verbose, dryRun=False)
+    return wrapModule(rawModule)
+
 
 def clearSessionShaderCache():
     compileAndLoadModule._moduleCache = {}
 
+
 def clearPersistentShaderCache():
-    baseOutputFolder = os.path.join(package_dir, '.slangpy_cache')
+    baseOutputFolder = os.path.join(packageDir, '.slangpy_cache')
     if os.path.exists(baseOutputFolder):
         import shutil
         shutil.rmtree(baseOutputFolder)
+
 
 def clearShaderCaches():
     clearSessionShaderCache()
