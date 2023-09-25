@@ -62,4 +62,24 @@ Note here that, as a shading language, Slang provides built-in vector types such
 
 Now that we have a function that tests at a single point, let's look at the kernel which will invoke this function on the pixel center value:
 
+```csharp
+float3 render_pixel(float2 pixel, float2 frameDim, float2 o, float2 scale, 
+                   float2 v1, float2 v2, float2 v3, float3 color)
+{
 
+    // Use white as the default background color.
+    float2 background_color = float3(1.0, 1.0, 1.0);
+
+    // Center of the pixel will be offset by 50% of the pixel size,
+    // which we will assume is 1 unit by 1 unit.
+    // 
+    float2 sample = pixel + 0.5;
+
+    bool hit = triangle(sample, v1, v2, v3);
+
+    // If we hit the triangle return the provided color, otherwise 0.
+    float3 result = hit ? color : float3(1.f);
+
+    return result;
+}
+```
