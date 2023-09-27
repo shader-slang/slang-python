@@ -1,10 +1,16 @@
 
+// xy: 2D test position
+// v1: vertex position 1
+// v2: vertex position 2
+// v3: vertex position 3
+//
 bool triangle(float2 xy, float2 v1, float2 v2, float2 v3)
 {
-    // 2D triangle test (return 1.0 if the triangle contains the point (x,y), 0.0 otherwise)
+    // 2D triangle test (return 1.0 if the triangle contains the point (x,y), 0.0 otherwise).
     float2 e0 = v2 - v1;
     float2 e1 = v3 - v2;
     float2 e2 = v1 - v3;
+
     float2 k0 = float2(-e0.y, e0.x);
     float2 k1 = float2(-e1.y, e1.x);
     float2 k2 = float2(-e2.y, e2.x);
@@ -12,72 +18,63 @@ bool triangle(float2 xy, float2 v1, float2 v2, float2 v3)
     float d0 = dot(k0, xy - v1);
     float d1 = dot(k1, xy - v2);
     float d2 = dot(k2, xy - v3);
-    return bool(d0 >= 0.0 && d1 >= 0.0 && d2 >= 0.0);
+
+    // Check the three half-plane values.
+    if(d0 >= 0.0 && d1 >= 0.0 && d2 >= 0.0)
+        return true;
+    else
+        return false;
 }
 
-float2 screen_to_world(float2 uv, float2 frameDim, float2 o, float2 scale)
+struct Camera
 {
-    // Convert screen coordinates to world coordinates
-    float2 xy = uv / frameDim;
-    float2 ndc = xy * 2.0f - 1.0f;
-    return ndc * scale + o;
-}
+    // World origin
+    float2 o;
 
-float3 render_pixel(float2 pixel, float2 frameDim, float2 o, float2 scale, 
-                   float2 v1, float2 v2, float2 v3, float3 color)
-{
-    // Create 4 samples around the pixel center
-    float2 samples[4];
-    samples[0] = pixel + float2(-1, -1) * 0.25 + 0.5; // +0.5 to center the sample
-    samples[1] = pixel + float2(-1, +1) * 0.25 + 0.5;
-    samples[2] = pixel + float2(+1, -1) * 0.25 + 0.5;
-    samples[3] = pixel + float2(+1, +1) * 0.25 + 0.5;
+    // World scale
+    float2 scale;
 
-    float3 result = 0.0f;
+    // Frame dimensions (i.e. image resolution)
+    float2 frameDim;
 
-    for (int i = 0; i < 4; ++i)
+    // Convert from
+    // screen coordinates [(0, 0), (W, H)] to
+    // world coordinates [(o.x - scale.x, o.y - scale.y), (o.x + scale.x, o.y + scale.y)]
+    //
+    float2 screenToWorld(float2 uv)
     {
-        float2 screen_sample = samples[i];
-        float2 world_sample = screen_to_world(screen_sample, frameDim, o, scale);
-        bool hit = triangle(world_sample, v1, v2, v3);
-        result += hit ? color : float3(1.f);
+        float2 xy = uv / frameDim;
+        float2 ndc = xy * 2.0f - 1.0f;
+        return ndc * scale + o;
     }
-
-    return result / 4.0f;
-}
+};
 
 [AutoPyBindCUDA]
-[CudaKernel]
+[CUDAKernel]
 void rasterize(
+    Camera camera,
     TensorView<float> vertices,
     TensorView<float> color,
     TensorView<float3> output)
 {
-    uint3 globalIdx = cudaBlockIdx() * cudaBlockDim() + cudaThreadIdx();
+    uint3 dispatch_id = cudaBlockIdx() * cudaBlockDim() + cudaThreadIdx();
 
-    if (globalIdx.x > output.size(0) || globalIdx.y > output.size(1))
+    if (dispatch_id.x > output.size(0) || dispatch_id.y > output.size(1))
         return;
 
-    // Load vertices of our triangle.
-    // Assume our input tensor is of the form (3, 2) where 3 is the number of vertices
-    // and 2 is the number of coordinates per vertex.
-    // 
-    float2 v1 = float2(vertices[uint2(0, 0)], vertices[uint2(0, 1)]);
-    float2 v2 = float2(vertices[uint2(1, 0)], vertices[uint2(1, 1)]);
-    float2 v3 = float2(vertices[uint2(2, 0)], vertices[uint2(2, 1)]);
+    float2 v1 = float2(vertices[0, 0], vertices[0, 1]);
+    float2 v2 = float2(vertices[1, 0], vertices[1, 1]);
+    float2 v3 = float2(vertices[2, 0], vertices[2, 1]);
     float3 c = float3(color[0], color[1], color[2]);
-    
-    // Setup default image parameters..
+    float3 background_color = float3(1.0, 1.0, 1.0);
 
-    // Image size (size of the output tensor)
-    float2 frameDim = float2(output.size(0), output.size(1));
+    float2 pixel_coord = dispatch_id.xy;
+    float2 screen_sample = pixel_coord + 0.5;
 
-    // Center point of the image
-    float2 o = float2(0.0, 0.0);
+    // Convert screen space pixel coordinates to world space.
+    float2 world_sample = camera.screenToWorld(screen_sample);
 
-    // Scale of the image
-    float2 scale = float2(1.0, 1.0);
-
-    // Compute value for each pixel.
-    output[globalIdx.xy] = render_pixel(globalIdx.xy, frameDim, o, scale, v1, v2, v3, c);
+    bool hit = triangle(world_sample, v1, v2, v3);
+    float3 result = hit ? c : background_color;
+    output[dispatch_id.xy] = result;
 }
