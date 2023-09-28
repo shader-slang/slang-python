@@ -77,7 +77,7 @@ def pyramid_loss(outputImage, targetImage, levels=6):
 
 rasterizer = setup_rasterizer()
 
-# Render a simple target image.
+# Render a 'target' image: a green triangle with perturbed vertices.
 targetVertices = torch.tensor([[0.7,-0.3], [-0.3,0.2], [-0.6,-0.6]]).type(torch.float).cuda()
 targetColor = torch.tensor([0.3, 0.8, 0.3]).type(torch.float).cuda()
 targetImage = rasterizer.apply(1024, 1024, targetVertices, targetColor)
