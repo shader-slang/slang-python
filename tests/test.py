@@ -210,11 +210,11 @@ class TestAutoPyBind(unittest.TestCase):
         
         module = slangpy.loadModule(slangModuleSourceFile)
 
-        X = torch.tensor([[1., 2.], [3., 4.]]).cuda()
+        X = torch.tensor([1., 2., 3., 4.]).cuda()
         Y = torch.zeros_like(X).cuda()
 
-        module.square(A=X, result=Y).launchRaw(blockSize=(32, 32, 1), gridSize=(1, 1, 1))
-        expected1 = torch.tensor([[1., 4.],[9., 16.]]).cpu()
+        module.square(input=X, output=Y).launchRaw(blockSize=(32, 32, 1), gridSize=(1, 1, 1))
+        expected1 = torch.tensor([1., 4., 9., 16.]).cpu()
 
         assert(torch.all(torch.eq(Y.cpu(), expected1)))
 
@@ -232,12 +232,12 @@ class TestAutoPyBindDiff(unittest.TestCase):
         
         # Test call by direct argument
         Y = torch.zeros_like(X).cuda()
-        self.module.square(A=X, result=Y).launchRaw(blockSize=(32, 1, 1), gridSize=(1, 1, 1))
+        self.module.square(input=X, output=Y).launchRaw(blockSize=(32, 1, 1), gridSize=(1, 1, 1))
         assert(torch.all(torch.eq(Y.cpu(), expected)))
 
         # Test call by singleton tuple
         Y = torch.zeros_like(X).cuda()
-        self.module.square(A=(X,), result=(Y,)).launchRaw(blockSize=(32, 1, 1), gridSize=(1, 1, 1))
+        self.module.square(input=(X,), output=(Y,)).launchRaw(blockSize=(32, 1, 1), gridSize=(1, 1, 1))
         assert(torch.all(torch.eq(Y.cpu(), expected)))
 
     def test_fwd_diff(self):
@@ -249,7 +249,7 @@ class TestAutoPyBindDiff(unittest.TestCase):
         # Test call by direct argument
         Y = torch.zeros_like(X).cuda()
         Y_d = torch.zeros_like(X_d).cuda()
-        self.module.square.fwd(A=(X, X_d), result=(Y, Y_d)).launchRaw(blockSize=(32, 1, 1), gridSize=(1, 1, 1))
+        self.module.square.fwd(input=(X, X_d), output=(Y, Y_d)).launchRaw(blockSize=(32, 1, 1), gridSize=(1, 1, 1))
         assert(torch.all(torch.eq(Y.cpu(), expected)))
         assert(torch.all(torch.eq(Y_d.cpu(), expected_d)))
 
@@ -257,8 +257,8 @@ class TestAutoPyBindDiff(unittest.TestCase):
         Y = torch.zeros_like(X).cuda()
         Y_d = torch.zeros_like(X_d).cuda()
         self.module.square.fwd(
-            A=self.module.DiffTensorView(value=X, grad=X_d),
-            result=self.module.DiffTensorView(value=Y, grad=Y_d)).launchRaw(blockSize=(32, 1, 1), gridSize=(1, 1, 1))
+            input=self.module.DiffTensorView(value=X, grad=X_d),
+            output=self.module.DiffTensorView(value=Y, grad=Y_d)).launchRaw(blockSize=(32, 1, 1), gridSize=(1, 1, 1))
         assert(torch.all(torch.eq(Y.cpu(), expected)))
         assert(torch.all(torch.eq(Y_d.cpu(), expected_d)))
     
@@ -271,15 +271,15 @@ class TestAutoPyBindDiff(unittest.TestCase):
 
         # Test call by direct argument
         X_d = torch.zeros_like(X).cuda()
-        self.module.square.bwd(A=(X, X_d), result=(Y, Y_d)).launchRaw(blockSize=(32, 1, 1), gridSize=(1, 1, 1))
+        self.module.square.bwd(input=(X, X_d), output=(Y, Y_d)).launchRaw(blockSize=(32, 1, 1), gridSize=(1, 1, 1))
         assert(torch.all(torch.eq(X_d.cpu(), expected_d)))
 
         # Test call by named tuple
         X_d = torch.zeros_like(X).cuda()
         Y_d = torch.tensor([1., 0., 1., 0.]).cuda()
         self.module.square.bwd(
-            A=self.module.DiffTensorView(value=X, grad=X_d),
-            result=self.module.DiffTensorView(value=Y, grad=Y_d)).launchRaw(blockSize=(32, 1, 1), gridSize=(1, 1, 1))
+            input=self.module.DiffTensorView(value=X, grad=X_d),
+            output=self.module.DiffTensorView(value=Y, grad=Y_d)).launchRaw(blockSize=(32, 1, 1), gridSize=(1, 1, 1))
         assert(torch.all(torch.eq(X_d.cpu(), expected_d)))
 
 class TestAutoPyBindStruct(unittest.TestCase):

@@ -1,9 +1,12 @@
 [AutoPyBindCUDA]
-[CudaKernel]
+[CUDAKernel]
 [Differentiable]
-void square(DiffTensorView<float, AtomicAdd> A, DiffTensorView<float, AtomicAdd> result)
+void square(DiffTensorView input, DiffTensorView output)
 {
-    uint location = (cudaBlockDim() * cudaBlockIdx() + cudaThreadIdx()).x;
-    if (location < A.size(0))
-        result.store(location, A.load(location) * A.load(location));
+    uint3 dispatchIdx = cudaThreadIdx() + cudaBlockIdx() * cudaBlockDim();
+
+    if (dispatchIdx.x >= input.size(0))
+        return;
+    
+    output[dispatchIdx.x] = input[dispatchIdx.x] * input[dispatchIdx.x];
 }

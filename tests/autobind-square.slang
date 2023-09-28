@@ -1,9 +1,13 @@
 [AutoPyBindCUDA]
-[CudaKernel]
-void square(TensorView<float> A, TensorView<float> result)
+[CUDAKernel]
+void square(TensorView<float> input, TensorView<float> output)
 {
-    uint2 location = (cudaBlockDim() * cudaBlockIdx() + cudaThreadIdx()).xy;
-    if (location.x < A.size(0) && location.y < A.size(1))
-        result[location] = A[location] * A[location];
+    // Get the 'global' index of this thread.
+    uint3 dispatchIdx = cudaThreadIdx() + cudaBlockIdx() * cudaBlockDim();
+
+    // If the thread index is beyond the input size, exit early.
+    if (dispatchIdx.x >= input.size(0))
+        return;
+
+    output[dispatchIdx.x] = input[dispatchIdx.x] * input[dispatchIdx.x];
 }
- 
