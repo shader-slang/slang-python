@@ -130,4 +130,6 @@ dmypy.json
 
 tests/.slangpy_cache/
 bin/
-*/.slangpy_cache/*
+
+# Ignore all slangpy cache folders.
+**/.slangpy_cache/**

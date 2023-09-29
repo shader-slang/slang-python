@@ -73,11 +73,11 @@ class WrappedFunction(object):
         
         if len(missing_from_output) > 0:
             raise ValueError(
-                f"{self.fn_name} got unexpected arguments: " + str(missing_from_output))
+                f"{self.fn_name} got unexpected arguments: {missing_from_output}. Available arguments: {self.argnames}")
         
         if len(missing_from_input) > 0:
             raise ValueError(
-                f"{self.fn_name} missing required arguments: " + str(missing_from_input))
+                f"{self.fn_name} missing required arguments: {missing_from_input}. Available arguments: {self.argnames}")
 
         return arglist
 
