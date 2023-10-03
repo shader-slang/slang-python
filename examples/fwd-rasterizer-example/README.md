@@ -149,7 +149,7 @@ plt.show()
 Hopefully, this example served as a good starting point for writing your own rendering kernels. 
 
 However, everything we've discussed so far is non-differentiable.
-The repository contains additional tutorials that discuss building **differentiable** rasterizers in Slang :
+The repository contains additional examples that discuss building **differentiable** rasterizers in Slang :
 1. 1-Triangle Soft Rasterizer using Edge Smoothing ([link](../soft-rasterizer-example/README.md))
 2. 1-Triangle 'Hard' Rasterizer using Monte Carlo Edge Sampling ([link](../hard-rasterizer-example/README.md))
 

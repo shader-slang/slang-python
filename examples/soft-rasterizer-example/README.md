@@ -1,4 +1,4 @@
-# Writing a differentiable soft rasterizer in Slang
+# 1-triangle differentiable soft rasterizer in Slang
 
 In the [forward rasterizer tutorial](../fwd-rasterizer-example/README.md), we showed how to write a simple 1-triangle non-differentiable rasterizer to produce an image from triangle coordinates.
 
@@ -23,7 +23,7 @@ And the logic to compute `distanceToEdge`:
 1. If the triangle formed by `(pt, u, v)` is obtuse, use distance to closest vertex.
 2. If not, use signed distance to line formed by `(u, v)`
 
-We will 
+Here is the Slang code that implements this logic:
 ```csharp
 [Differentiable]
 float distanceToVertex(float2 xy2, float2 v)
