@@ -14,9 +14,9 @@ PyTorch's fundamental execution model launches a separate kernel for every opera
 
 As a result nearly all Tiny-MLP pipelines are implemented in low-level languages like CUDA/HLSL/GLSL, and since these are non-differentiable, the pipelines have hand-coded derivatives & are much trickier to modify for experimentation when compared to models written in PyTorch.
 
-In this example we show an implementation of a Tiny-MLP model using CUDA's WMMA API, that uses Slang's differentiable programming features to encapsulate the complexity of inline evaluation behind a single layer implementation. 
+In this example we show an implementation of a Tiny-MLP model using CUDA's WMMA API (`inline-mlp.slang` & `cuda_matmul_prelude.cuh`), that uses Slang's differentiable programming features to encapsulate the complexity of inline evaluation behind a single layer implementation. 
 
-We that show an example 2D image model that uses this MLP and relies on Slang's automatic differentiation to produce the derivative kernel. The result is a fast differentiable implementation that operates entirely on shared memory and is easy to read, modify & experiment with!
+We then show an example 2D image model (`image-model.slang`) that uses this MLP and relies on Slang's automatic differentiation to produce the derivative kernel. The result is a fast differentiable implementation that operates entirely on shared memory and is easy to read, modify & experiment with!
 
 ## Running the Code
 
