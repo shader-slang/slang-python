@@ -50,4 +50,4 @@ The code is structured as follows:
      2. `image_model.py`: Loads `image-model.slang` using `slangpy` and wraps the functionality as a `torch.autograd.Function`. Note that since all Slang-side structures are automatically exported to python as `namedtuple` objects, the MLP input can be constructed by referring directly to the field names as defined in Slang.
      3. `mlp_image_fit.py` Runs a standard PyTorch-based optimization loop using this new image model to jointly optimize weights, biases and the feature grid. You should be able to see something similar to the following when it's done: 
      
-     <img src="result.png" width=1000>
+<img src="result.png">
