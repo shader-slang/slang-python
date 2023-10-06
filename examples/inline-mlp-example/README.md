@@ -26,7 +26,7 @@ python mlp_image_fit.py
 ```
 
 Dependencies:
- - `slangpy` **v1.1.8** or later (`pip install slangpy`)
+ - `slangpy` **v1.1.10** or later (`pip install slangpy`)
  - `torch` **2.0** or later with CUDA support (use the [torch website](https://pytorch.org/))
   
 For visualization:
@@ -48,4 +48,6 @@ The code is structured as follows:
         1. `computeInterpolatedFeature`: This takes a `featureGrid` tensor-view that is a 2D grid of randomly initialized `14`-element features, computes an interpolated feature for each pixel by finding its grid cell and applying bi-linear interpolation to the features from the four corners. Note that this process is entirely differentiable.
         2. `renderImage`: The entry-point for the Python-side. `renderImage` computes the interpolated feature, invokes our MLP and writes the output to our output image
      2. `image_model.py`: Loads `image-model.slang` using `slangpy` and wraps the functionality as a `torch.autograd.Function`. Note that since all Slang-side structures are automatically exported to python as `namedtuple` objects, the MLP input can be constructed by referring directly to the field names as defined in Slang.
-     3. `mlp_image_fit.py` Runs a standard PyTorch-based optimization loop using this new image model to jointly optimize weights, biases and the feature grid. You should be able to see something similar to the following when it's done: <img src="result.png">
+     3. `mlp_image_fit.py` Runs a standard PyTorch-based optimization loop using this new image model to jointly optimize weights, biases and the feature grid. You should be able to see something similar to the following when it's done: 
+     
+     <img src="result.png" width=1000>
