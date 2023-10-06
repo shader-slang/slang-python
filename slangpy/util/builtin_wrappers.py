@@ -3,7 +3,8 @@ import torch
 
 DiffTensorView = namedtuple('DiffTensorView', ['value', 'grad'], defaults=[None])
 
-def make_diff_tensor_view_wrapper(module, typename, wrappedTypeMap):
+
+def make_diff_tensor_view_wrapper(module, typename, wrappedTypeMap, makeTypeWrapper):
     # Look for module.__typeinfo__DiffTensorView
     typeInfoFnName = f"__typeinfo__{typename}"
     if hasattr(module, typeInfoFnName):
@@ -37,6 +38,41 @@ def make_diff_tensor_view_wrapper(module, typename, wrappedTypeMap):
         raise ValueError(f"Could not find typeinfo for {typename}")
 
 
+def make_array_wrapper(module, typename, wrappedTypeMap, makeTypeWrapper):
+    typeInfoFnName = f"__typeinfo__{typename}"
+    if hasattr(module, typeInfoFnName):
+        typeInfoFn = getattr(module, typeInfoFnName)
+        (fieldnames, fieldtypenames) = typeInfoFn()
+
+        # For an array we should see "type" & "size" fields
+        assert len(fieldnames) == 2
+        assert "type" in fieldnames
+        assert "size" in fieldnames
+
+        elementType = fieldtypenames[fieldnames.index("type")]
+        arraySize = int(fieldtypenames[fieldnames.index("size")])
+
+        # Get the wrapper for the element type
+        (_, elementTypeConvertFn) = makeTypeWrapper(module, elementType, wrappedTypeMap)
+
+        # convert various input formats to a tuple & perform type checking
+        def accept_array(inp):
+            if isinstance(inp, tuple):
+                if len(inp) != arraySize:
+                    raise ValueError(f"Expected tuple of length {arraySize}, got {len(inp)}, when marshalling type {typename}")
+                return tuple([elementTypeConvertFn(x) for x in inp])
+            elif isinstance(inp, list):
+                if len(inp) != arraySize:
+                    raise ValueError(f"Expected list of length {arraySize}, got {len(inp)}, when marshalling type {typename}")
+                return tuple([elementTypeConvertFn(x) for x in inp])
+            else:
+                raise ValueError(f"Expected torch.Tensor, tuple or list, got {type(inp)}")
+        
+        wrappedTypeMap[typename] = (tuple, accept_array)
+        
+        return tuple, accept_array
+
 wrappers = {
     'DiffTensorView': make_diff_tensor_view_wrapper,
+    'Array_*': make_array_wrapper
 }

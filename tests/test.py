@@ -203,6 +203,52 @@ class TestCacheState(unittest.TestCase):
         assert(torch.all(torch.eq(Y1, expected1)))
 
 
+class TestCudaPreludeCache(unittest.TestCase):
+    def test_cache_state_on_cuda_prelude_modification(self):
+        test_dir = os.path.dirname(os.path.abspath(__file__))
+
+        cuPreludeTemplateTestFile = os.path.join(test_dir, 'cuda-intrinsic-test.cuh')
+        cuIntrinsicTestFile = os.path.join(test_dir, 'cuda-intrinsic-binding.slang')
+
+        # Get a temporary directory.
+        import tempfile
+        import shutil
+        tmpdir = tempfile.mkdtemp()
+
+        cuPreludeFile = os.path.join(tmpdir, 'cuda-intrinsic-test.cuh')
+        cuIntrinsicFile = os.path.join(tmpdir, 'cuda-intrinsic-binding.slang')
+
+        # Read template file, replace %CONST_VAL% with 2.0, and write to temporary directory.
+        with open(cuPreludeTemplateTestFile, 'r') as f:
+            template = f.read()
+            template = template.replace(r'%CONST_VAL%', '2.0')
+            with open(cuPreludeFile, 'w') as f2:
+                f2.write(template)
+        # Simply copy the base slang file to the temporary directory.
+        shutil.copy(cuIntrinsicTestFile, tmpdir)
+
+        module1 = slangpy.loadModule(cuIntrinsicFile)
+        X = torch.zeros((1,), dtype=torch.float, device='cuda:0')
+        module1.getConst(output=X).launchRaw(blockSize=(1,1,1), gridSize=(1,1,1))
+        expected1 = torch.tensor([2.0]).cpu()
+        assert(torch.all(torch.eq(X.cpu(), expected1)))
+
+        # Read template file, replace %CONST_VAL% with 1.0, and write to temporary directory.
+        with open(cuPreludeTemplateTestFile, 'r') as f:
+            template = f.read()
+            template = template.replace(r'%CONST_VAL%', '1.0')
+            with open(cuPreludeFile, 'w') as f2:
+                f2.write(template)
+        
+        # Should trigger a recompile. If not, we'll see invalid results.
+
+        module2 = slangpy.loadModule(cuIntrinsicFile)
+        X = torch.zeros((1,), dtype=torch.float, device='cuda:0')
+        module2.getConst(output=X).launchRaw(blockSize=(1,1,1), gridSize=(1,1,1))
+        expected2 = torch.tensor([1.0]).cpu()
+        assert(torch.all(torch.eq(X.cpu(), expected2)))
+
+
 class TestAutoPyBind(unittest.TestCase):
     def test_autopybind(self):
         test_dir = os.path.dirname(os.path.abspath(__file__))

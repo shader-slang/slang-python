@@ -1,3 +1,8 @@
+// Expect WARP_SIZE, NUM_THREADS_PER_BLOCK to be defined from the python side.
+
+static const int warpSize = WARP_SIZE;
+static const int numThreadsPerBlock = NUM_THREADS_PER_BLOCK;
+static const int numWarpsPerBlock = NUM_THREADS_PER_BLOCK / WARP_SIZE;
 
 void __inline_matmul_impl(Ptr<float> input, Ptr<float> weights, Ptr<float> output,
                           constexpr int W, constexpr int C, constexpr int O, 
@@ -6,6 +11,7 @@ void __inline_matmul_impl(Ptr<float> input, Ptr<float> weights, Ptr<float> outpu
     __target_switch
     {
     case cuda:
+        // See "cuda_matmul_prelude.cuh" for the tiled matmul implementation.
         __requirePrelude("#include \"cuda_matmul_prelude.cuh\"");
         __intrinsic_asm "wmma_inline_matmul< $3, $4, $5, $6, $7, $8 >($0, $1, $2)";
     }
@@ -17,14 +23,6 @@ void __inline_matmul(
 {
     __inline_matmul_impl(input, weights, output, W, C, O, M, N, K);
 }
-
-#define WARP_SIZE 32
-#define NUM_THREADS_PER_BLOCK 256
-
-static const int warpSize = WARP_SIZE;
-static const int numThreadsPerBlock = NUM_THREADS_PER_BLOCK;
-static const int numWarpsPerBlock = NUM_THREADS_PER_BLOCK / WARP_SIZE;
-
 __generic<let C : int> 
 struct Feature: IDifferentiable
 {
@@ -71,7 +69,7 @@ struct Linear<let C : int>
 
     SharedMemRef outBufferForCurrentWarp()
     {
-        // Used for staging both inputs & d_inputs
+        // Used for staging both outputs & d_outputs
         static groupshared float shared_output_buffer[numThreadsPerBlock * C];
 
         uint warpOffset = calcOffset<warpSize * C>();

@@ -1,6 +1,7 @@
 
 from typing import Any, Tuple
 from collections import namedtuple
+import re
 import torch
 
 from .builtin_wrappers import wrappers as builtin_wrappers
@@ -106,7 +107,6 @@ class WrappedFunction(object):
             raise ValueError(f"{self.fn_name} does not have a bwd-mode derivative attached")
         return self.bwd_wrapped_fn(**kwargs)
 
-# Nothing here for now...
 customWrapperMap = {**builtin_wrappers}
 
 def makeTypeWrapper(module, typename, wrappedTypeMap):
@@ -115,8 +115,9 @@ def makeTypeWrapper(module, typename, wrappedTypeMap):
     # and a lambda that converts the namedtuple to a regular tuple
     #
 
-    if typename in customWrapperMap:
-        return customWrapperMap[typename](module, typename, wrappedTypeMap)
+    for (regex, wrapperFn) in customWrapperMap.items():
+        if re.match(regex, typename):
+            return wrapperFn(module, typename, wrappedTypeMap, makeTypeWrapper)
     
     if typename in wrappedTypeMap:
         return wrappedTypeMap[typename]

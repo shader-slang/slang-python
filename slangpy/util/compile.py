@@ -9,9 +9,12 @@ from torch.utils.cpp_extension import (
     _get_exec_path,
     _join_rocm_home,
     _is_cuda_file,
+    _get_num_workers,
+    PLAT_TO_VCVARS,
     _TORCH_PATH,
     JIT_EXTENSION_VERSIONER,
-    IS_HIP_EXTENSION
+    IS_HIP_EXTENSION,
+    IS_WINDOWS
 )
 
 from torch.utils.file_baton import FileBaton
@@ -20,6 +23,7 @@ from torch.utils.hipify import hipify_python
 from typing import Optional
 import sys
 import os
+import subprocess
 
 def jit_compile(name,
                  sources,
@@ -87,3 +91,66 @@ def jit_compile(name,
         return _get_exec_path(name, build_directory)
 
     return _import_module_from_library(name, build_directory, is_python_module)
+
+
+class NinjaResult:
+    BUILD_FAIL = 0
+    BUILD_SUCCESS = 1
+    NO_WORK_TO_DO = 2
+
+def run_ninja(
+        build_directory: str,
+        verbose: bool) -> int:
+    r'''Modified version of torch.utils.cpp_extension._run_ninja that explicitly 
+        detects a couple of cases: when there's no work to do & when ninja fails.
+    '''
+    command = ['ninja', '-v']
+    num_workers = _get_num_workers(verbose)
+    if num_workers is not None:
+        command.extend(['-j', str(num_workers)])
+    env = os.environ.copy()
+    # Try to activate the vc env for the users
+    if IS_WINDOWS and 'VSCMD_ARG_TGT_ARCH' not in env:
+        from setuptools import distutils
+
+        plat_name = distutils.util.get_platform()
+        plat_spec = PLAT_TO_VCVARS[plat_name]
+
+        vc_env = distutils._msvccompiler._get_vc_env(plat_spec)
+        vc_env = {k.upper(): v for k, v in vc_env.items()}
+        for k, v in env.items():
+            uk = k.upper()
+            if uk not in vc_env:
+                vc_env[uk] = v
+        env = vc_env
+    try:
+        sys.stdout.flush()
+        sys.stderr.flush()
+        stdout_fileno = 1
+        proc = subprocess.run(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            cwd=build_directory,
+            check=True,
+            env=env)
+
+        # Read stdout and check for the "no work to do" message
+        stdout = proc.stdout.decode()
+        if verbose:
+            print(stdout)
+        
+        if "ninja: no work to do." in stdout:
+            return NinjaResult.NO_WORK_TO_DO
+
+        # Otherwise, we assume ninja did something & succeeded.
+        #  
+        # This is a fairly flimsy way to check for success, but as
+        # long as ninja doesn't change its output format, it should work..
+        #
+        return NinjaResult.BUILD_SUCCESS
+    except subprocess.CalledProcessError as e:
+        if verbose:
+            print(e.stdout.decode())
+            print(e.stderr.decode())
+        return NinjaResult.BUILD_FAIL

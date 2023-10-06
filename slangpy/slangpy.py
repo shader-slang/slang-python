@@ -8,7 +8,7 @@ import json
 import re
 import time
 
-from .util import jit_compile
+from .util import jit_compile, run_ninja, NinjaResult
 from .util import wrapModule
 
 packageDir = pkg_resources.resource_filename(__name__, '')
@@ -186,6 +186,16 @@ def getOrCreateUniqueDir(moduleKey, baseDir):
 
         import distutils.dir_util
         distutils.dir_util.copy_tree(latestDir, targetDir)
+
+        # Modify the build-dir-sensitive metadata in metadata.json
+        metadataFile = os.path.join(targetDir, "metadata.json")
+        if (os.path.exists(metadataFile) and os.path.isfile(metadataFile)):
+            with open(metadataFile, 'r') as f:
+                metadata = json.load(f)
+                metadata['moduleBinary'] = os.path.join(targetDir, f"{metadata['moduleName']}.pyd")
+
+            with open(metadataFile, 'w') as f:
+                json.dump(metadata, f, indent=4)
     
     # Update latest.txt
     with open(latestFile, 'w') as f:
@@ -291,8 +301,9 @@ def _compileSlang(metadata, fileName, targetMode, options, outputFile, verbose=F
     return {"options": options, "deps": deps, "version": versionCode}
 
 
-def compileAndLoadModule(metadata, sources, moduleName, buildDir, verbose=False, dryRun=False):
+def compileAndLoadModule(metadata, sources, moduleName, buildDir, slangSourceDir=None, verbose=False, dryRun=False):
     needsRebuild = False
+    needsReload = False
 
     newMetadata = metadata.copy()
 
@@ -317,21 +328,53 @@ def compileAndLoadModule(metadata, sources, moduleName, buildDir, verbose=False,
     else:
         needsRebuild = True
 
-    cacheLookupKey = moduleName
-
     if not needsRebuild:
-        # Try the session cache. If we find a hit, the module is already loaded. 
-        if compileAndLoadModule._moduleCache is not None:
-            if cacheLookupKey in compileAndLoadModule._moduleCache:
-                if verbose:
-                    print(f"Skipping build. Using cached module ({cacheLookupKey})", file=sys.stderr)
-                if dryRun:
-                    return False, None
-                return compileAndLoadModule._moduleCache[cacheLookupKey], newMetadata
+        # One more check: we will run ninja on the build directory to see if there is anything to do.
+        # This check catches the case where the Slang products are up-to-date, but any downstream 
+        # dependencies such as prelude header files, or user-defined header files have changed.
+        #
+        if verbose:
+            print(f"Running ninja in existing build-dir: {buildDir}", file=sys.stderr)
+
+        # verbose set to False on purpose to avoid clogging up the console with the trial run
+        # which is expected to show failure messages even on certain successful states.
+        #
+        ninja_result = run_ninja(buildDir, verbose=False)
+
+        if ninja_result == NinjaResult.BUILD_SUCCESS:
+            if verbose:
+                print(f"\tBuild non-trivial success. Need to reload module", file=sys.stderr)
+            needsRebuild = False
+            needsReload = True
+        elif ninja_result == NinjaResult.NO_WORK_TO_DO:
+            if verbose:
+                print(f"\tNo work to do.", file=sys.stderr)
+            needsRebuild = False
+            needsReload = False
+        elif ninja_result == NinjaResult.BUILD_FAIL:
+            if verbose:
+                print(f"\tBuild failed (either the build files are improper or target is in use."
+                      f"Fresh build required)", file=sys.stderr)
+            needsRebuild = True
+            needsReload = False
+        else:
+            raise RuntimeError(f"Unknown ninja result: {ninja_result}")
+
+    cacheLookupKey = moduleName
+    if not needsRebuild:
+        if not needsReload:
+            # Try the session cache. If we find a hit, the module is already loaded.
+            if compileAndLoadModule._moduleCache is not None:
+                if cacheLookupKey in compileAndLoadModule._moduleCache:
+                    if verbose:
+                        print(f"Build & load skipped. Using cached module ({cacheLookupKey})", file=sys.stderr)
+                    if dryRun:
+                        return False, None
+                    return compileAndLoadModule._moduleCache[cacheLookupKey], newMetadata
         
-        # If not, try the persistent cache. It's a lot quicker to import the binary
-        # than going through torch's build process again (even if the build detects 
-        # that there is nothing to do)
+        # If not, try the persistent cache (load shared object). It's a lot quicker to import the binary
+        # than going through torch's build-file generation + ninja dependency detection
+        # even if ultimately have nothing to do.
         #
         moduleBinary = os.path.realpath(metadata["moduleBinary"])
         if os.path.exists(moduleBinary):
@@ -358,7 +401,7 @@ def compileAndLoadModule(metadata, sources, moduleName, buildDir, verbose=False,
             return True, None
         
         # Compile the module.
-        slangLib = _compileAndLoadModule(metadata, sources, moduleName, buildDir, verbose)
+        slangLib = _compileAndLoadModule(metadata, sources, moduleName, buildDir, slangSourceDir, verbose)
 
         newMetadata = metadata.copy()
         newMetadata["moduleName"] = moduleName
@@ -367,6 +410,7 @@ def compileAndLoadModule(metadata, sources, moduleName, buildDir, verbose=False,
     if dryRun:
         return False, None
     
+    # Cache the module for later.
     compileAndLoadModule._moduleCache[cacheLookupKey] = slangLib
 
     return slangLib, newMetadata
@@ -375,26 +419,34 @@ def compileAndLoadModule(metadata, sources, moduleName, buildDir, verbose=False,
 compileAndLoadModule._moduleCache = {}
 
 
-def _compileAndLoadModule(metadata, sources, moduleName, buildDir, verbose=False):
+def _compileAndLoadModule(metadata, sources, moduleName, buildDir, slangSourceDir, verbose=False):
     # make sure to add cl.exe to PATH on windows so ninja can find it.
     _add_msvc_to_env_var()
 
     extra_cflags = None
+    extra_cuda_cflags = None
     # If windows, add /std:c++17 to extra_cflags
     if sys.platform == "win32":
         extra_cflags = ["/std:c++17"]
-    
+        extra_cuda_cflags = ["--std=c++17"]
+
     # If linux/darwin, add -std=c++17 to extra_cflags
     if sys.platform == "linux" or sys.platform == "darwin":
-       extra_cflags = ["-std=c++17"]
+        extra_cflags = ["-std=c++17"]
+        extra_cuda_cflags = ["-std=c++17"]
+
+    if slangSourceDir:
+        extra_include_paths = [slangSourceDir]
+    else:
+        extra_include_paths = None
 
     return jit_compile(
         moduleName,
         sources,
         extra_cflags=extra_cflags,
-        extra_cuda_cflags=None,
+        extra_cuda_cflags=extra_cuda_cflags,
         extra_ldflags=None,
-        extra_include_paths=None,
+        extra_include_paths=extra_include_paths,
         build_directory=os.path.realpath(buildDir),
         verbose=verbose,
         is_python_module=True,
@@ -431,6 +483,9 @@ def _loadModule(fileName, moduleName, outputFolder, options, sourceDir=None, ver
             metadata = json.load(f)
 
     baseName = os.path.basename(fileName)
+    realFilePath = os.path.realpath(fileName)
+    slangSourceDir = os.path.dirname(realFilePath) if realFilePath else None
+
     if sourceDir is None:
         cppOutName = os.path.join(outputFolder, _replaceFileExt(baseName, ".cpp"))
         cudaOutName = os.path.join(outputFolder, _replaceFileExt(baseName, "_cuda.cu"))
@@ -457,7 +512,8 @@ def _loadModule(fileName, moduleName, outputFolder, options, sourceDir=None, ver
     
     slangLib, metadata = compileAndLoadModule(
         metadata, [cppOutName, cudaOutName], 
-        moduleName, outputFolder, verbose, dryRun=dryRun)
+        moduleName, outputFolder, slangSourceDir,
+        verbose, dryRun=dryRun)
 
     if dryRun:
         if slangLib:
@@ -469,7 +525,7 @@ def _loadModule(fileName, moduleName, outputFolder, options, sourceDir=None, ver
 
     # Save metadata.
     with open(metadataFile, 'w') as f:
-        json.dump(metadata, f)
+        json.dump(metadata, f, indent=4)
 
     if verbose:
         print(f"Slang compile time: {compileEndTime-compileStartTime:.3f}s", file=sys.stderr)
@@ -485,7 +541,7 @@ def loadModule(fileName, skipSlang=None, verbose=False, defines={}):
 
     if verbose:
         print(f"Loading slang module: {fileName}", file=sys.stderr)
-        print(f"Using slangc.exe location: {slangcPath}", file=sys.stderr)
+        print(f"Using slangc location: {slangcPath}", file=sys.stderr)
 
     if defines:
         optionsHash = getDictionaryHash(defines, truncate_at=16)

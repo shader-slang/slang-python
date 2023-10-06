@@ -25,7 +25,6 @@ __device__ void wmma_inline_matmul(float *in, float *wt, float *out)
    nvcuda::wmma::fragment<nvcuda::wmma::matrix_a, M, N, K, nvcuda::wmma::precision::tf32, nvcuda::wmma::row_major> a_frag;
    nvcuda::wmma::fragment<nvcuda::wmma::matrix_b, M, N, K, nvcuda::wmma::precision::tf32, nvcuda::wmma::col_major> b_frag;
    nvcuda::wmma::fragment<nvcuda::wmma::accumulator, M, N, K, float> acc_frag;
-   nvcuda::wmma::fragment<nvcuda::wmma::accumulator, M, N, K, float> c_frag;
 
    // We'll go over each tile of MxN for the output matrix. 
    // (all these loops are unrollable since C is known at compile time)
