@@ -33,6 +33,10 @@ For visualization:
  - `matplotlib`
  - `cv2`
 
+Hardware requirements:
+ - CUDA-capable GPU with `tf32` support (Ampere or newer). 
+    - Note: This example can be adapted to run on pre-Ampere GPUs by replacing the `tf32`-based mma operations with their `fp16` versions in `cuda_matmul_prelude.cuh` 
+
 ## Implementation Details
 
 The code is structured as follows:

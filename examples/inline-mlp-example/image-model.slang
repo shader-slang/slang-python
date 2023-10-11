@@ -43,16 +43,12 @@ Feature<C> computeInterpolatedFeature(DiffTensorView featureGrid, uint2 frameDim
 [AutoPyBindCUDA]
 void renderImage(MLP<C, 3> mlp, DiffTensorView featureGrid, DiffTensorView imageOutput)
 {
-    // Build a C-element vector of pixel coordinates & their positional encodings.
-    // The positional encodings are computed using the sine and cosine functions.
-    //
-
     uint3 dispatchIdx = cudaThreadIdx() + cudaBlockIdx() * cudaBlockDim();
 
     if (dispatchIdx.x >= imageOutput.size(0) || dispatchIdx.y >= imageOutput.size(1))
         return;
 
-
+    // Compute the input feature for our current pixel.
     Feature<C> feature = computeInterpolatedFeature(featureGrid, uint2(imageOutput.size(0), imageOutput.size(1)));
 
     // Run the MLP on the input features.
