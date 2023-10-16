@@ -1,6 +1,6 @@
 #include "BRDF.slang"
 
-[BackwardDifferentiable]
+[Differentiable]
 float bilin_weight(float t)
 {
     if (abs(t) > 1.0f)
@@ -9,7 +9,7 @@ float bilin_weight(float t)
     return 1.0f - abs(t);
 }
 
-[BackwardDifferentiable]
+[Differentiable]
 float getInputElement(DiffTensorView<float> input,
                       no_diff int3 loc)
 {
@@ -18,7 +18,7 @@ float getInputElement(DiffTensorView<float> input,
     return input.load(loc);
 }
 
-[BackwardDifferentiable]
+[Differentiable]
 float sampleBilinear(DiffTensorView<float> input,
                      no_diff float2 uv,
                      no_diff int z_slice)
@@ -61,7 +61,7 @@ Params PackInputParams(InputParams input_params)
     return params;
 }
 
-[BackwardDifferentiable]
+[Differentiable]
 float3 computeLighting(DiffTensorView<float> input,
                        float2 uv,
                        no_diff Params params)
@@ -107,7 +107,7 @@ void brdf(TensorView<float> input, TensorView<float> output, InputParams input_p
     output[int3(globalIdx.xy, 2)] = sqrt(lighting.b);
 }
 
-[BackwardDifferentiable]
+[Differentiable]
 float loss(DiffTensorView<float> input,
            no_diff float2 uv,
            no_diff float3 reference,

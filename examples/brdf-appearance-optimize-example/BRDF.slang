@@ -2,25 +2,25 @@
 
 #define PI 3.14159265358979323846f
 
-[BackwardDifferentiable]
+[Differentiable]
 float square(float x)
 {
     return x * x;
 }
 
-[BackwardDifferentiable]
+[Differentiable]
 inline float clamp(float x, float x_min, float x_max)
 {
     return max(min(x, x_max), x_min);
 }
 
-[BackwardDifferentiable]
+[Differentiable]
 inline float sqr(float x)
 {
     return x * x;
 }
 
-[BackwardDifferentiable]
+[Differentiable]
 inline float SchlickFresnel(float u)
 {
     float m = clamp(1 - u, 0, 1);
@@ -28,7 +28,7 @@ inline float SchlickFresnel(float u)
     return m2 * m2 * m; // pow(m,5)
 }
 
-[BackwardDifferentiable]
+[Differentiable]
 inline float GTR1(float NdotH, float a)
 {
     if (a >= 1)
@@ -38,7 +38,7 @@ inline float GTR1(float NdotH, float a)
     return (a2 - 1) / (PI * log(a2) * t);
 }
 
-[BackwardDifferentiable]
+[Differentiable]
 inline float GTR2(float NdotH, float a)
 {
     float a2 = a * a;
@@ -46,13 +46,13 @@ inline float GTR2(float NdotH, float a)
     return a2 / (PI * t * t);
 }
 
-[BackwardDifferentiable]
+[Differentiable]
 inline float GTR2_aniso(float NdotH, float HdotX, float HdotY, float ax, float ay)
 {
     return 1 / (PI * ax * ay * sqr(sqr(HdotX / ax) + sqr(HdotY / ay) + NdotH * NdotH));
 }
 
-[BackwardDifferentiable]
+[Differentiable]
 inline float smithG_GGX(float NdotV, float alphaG)
 {
     float a = alphaG * alphaG;
@@ -60,13 +60,13 @@ inline float smithG_GGX(float NdotV, float alphaG)
     return 1 / (NdotV + sqrt(a + b - a * b));
 }
 
-[BackwardDifferentiable]
+[Differentiable]
 inline float smithG_GGX_aniso(float NdotV, float VdotX, float VdotY, float ax, float ay)
 {
     return 1 / (NdotV + sqrt(sqr(VdotX * ax) + sqr(VdotY * ay) + sqr(NdotV)));
 }
 
-[BackwardDifferentiable]
+[Differentiable]
 inline float3 BRDF(float3 L, float3 V, float3 N, float3 baseColor, float roughness = 0.25, float metallic = 0.0, float specular = 1.0)
 {
     const float subsurface = 0;
