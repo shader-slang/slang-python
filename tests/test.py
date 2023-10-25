@@ -249,6 +249,75 @@ class TestCudaPreludeCache(unittest.TestCase):
         assert(torch.all(torch.eq(X.cpu(), expected2)))
 
 
+class TestIncludePaths(unittest.TestCase):
+    def test_include_paths(self):
+        # Create a temp directory structure with two folders
+        # each with a separate .slang file. 
+        # Call .loadModule() on one of them and attempt to include
+        # the other. It should fail.
+        # Then add the folder to the include path and try again.
+        # It should succeed.
+        #
+
+        test_dir = os.path.dirname(os.path.abspath(__file__))
+        slangModuleFile = os.path.join(test_dir, 'import-module.slang')
+        slangDependencyFile = os.path.join(test_dir, 'imported-module.slang')
+
+        # Get a temporary directory.
+        import tempfile
+        import shutil
+        tmpdir = tempfile.mkdtemp()
+
+        # Create three subdirectories
+        subdir1 = os.path.join(tmpdir, 'subdir1')
+        subdir2 = os.path.join(tmpdir, 'subdir2')
+        subdir3 = os.path.join(tmpdir, 'subdir3')
+        os.mkdir(subdir1)
+        os.mkdir(subdir2)
+        os.mkdir(subdir3)
+
+        # Copy the source file to the temporary directory.
+        shutil.copy(slangModuleFile, subdir1)
+
+        # Write the dependency file by replacing %FACTOR% with 2.0
+        with open(slangDependencyFile, 'r') as f:
+            template = f.read()
+            template = template.replace(r'%FACTOR%', '2.0')
+            with open(os.path.join(subdir2, 'imported-module.slang'), 'w') as f2:
+                f2.write(template)
+        
+        # Write the dependency file by replacing %FACTOR% with 1.0
+        with open(slangDependencyFile, 'r') as f:
+            template = f.read()
+            template = template.replace(r'%FACTOR%', '1.0')
+            with open(os.path.join(subdir3, 'imported-module.slang'), 'w') as f2:
+                f2.write(template)
+
+        # Expect a RuntimeError (includePaths is not set)
+        with self.assertRaises(RuntimeError):
+            slangpy.loadModule(os.path.join(subdir1, 'import-module.slang'))
+
+        # Run again, should succeed.
+        module = slangpy.loadModule(os.path.join(subdir1, 'import-module.slang'), includePaths=[subdir2])
+
+        # Check that the output is multiplied by 2.0
+        X = torch.tensor([[1., 2.], [3., 4.]]).cuda()
+        Y1 = module.multiply(X).cpu()
+        expected1 = torch.tensor([[2., 4.],[6., 8.]]).cpu()
+
+        assert(torch.all(torch.eq(Y1, expected1)))
+
+        # Run again with a different include path, should recompile & succeed.
+        module = slangpy.loadModule(os.path.join(subdir1, 'import-module.slang'), includePaths=[subdir3])
+
+        # Check that the output is multiplied by 1.0
+        X = torch.tensor([[1., 2.], [3., 4.]]).cuda()
+        Y2 = module.multiply(X).cpu()
+        expected2 = torch.tensor([[1., 2.],[3., 4.]]).cpu()
+
+        assert(torch.all(torch.eq(Y2, expected2)))
+
+
 class TestAutoPyBind(unittest.TestCase):
     def test_autopybind(self):
         test_dir = os.path.dirname(os.path.abspath(__file__))

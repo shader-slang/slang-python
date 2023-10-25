@@ -204,7 +204,7 @@ def getOrCreateUniqueDir(moduleKey, baseDir):
     return targetDir
 
 
-def compileSlang(metadata, fileName, targetMode, options, outputFile, verbose=False, dryRun=False):
+def compileSlang(metadata, fileName, targetMode, options, outputFile, verbose=False, includePaths=[], dryRun=False):
     needsRecompile = False
 
     # If version either doesn't exist or is different, we need to recompile.
@@ -258,14 +258,28 @@ def compileSlang(metadata, fileName, targetMode, options, outputFile, verbose=Fa
             needsRecompile = True
     else:
         needsRecompile = True
+
+    # If any of the include paths are different, we need to recompile (include paths can 
+    # potentially change which version of a header is imported)
+    #
+    if metadata and (metadata.get("includePaths", None) != None):
+        oldIncludePaths = metadata["includePaths"]
+        if verbose:
+            print("Checking include paths... ", file=sys.stderr)
+        
+        # Check that the two lists have the same elements.
+        if set(oldIncludePaths) != set(includePaths):
+            if verbose:
+                print(f"Include paths are different \"{oldIncludePaths}\" => \"{includePaths}\". Needs recompile.", file=sys.stderr)
+            needsRecompile = True
     
     if needsRecompile:
-        return True, (_compileSlang(metadata, fileName, targetMode, options, outputFile, verbose) if not dryRun else None)
+        return True, (_compileSlang(metadata, fileName, targetMode, options, outputFile, includePaths, verbose) if not dryRun else None)
     else:
         return False, (metadata if not dryRun else None)
 
 
-def _compileSlang(metadata, fileName, targetMode, options, outputFile, verbose=False):
+def _compileSlang(metadata, fileName, targetMode, options, outputFile, includePaths=[], verbose=False):
     # Create a temporary depfile path.
     depFile = f"{outputFile}.d.out"
 
@@ -274,6 +288,11 @@ def _compileSlang(metadata, fileName, targetMode, options, outputFile, verbose=F
                       '-line-directive-mode', 'none',
                       '-o', outputFile,
                       '-depfile', depFile]
+
+    if includePaths is not None:
+        for includePath in includePaths:
+            compileCommand.extend(["-I", includePath])
+
     if verbose:
         print(f"Building {os.path.basename(fileName)} -> {os.path.basename(outputFile)}: ", 
               " ".join(compileCommand), file=sys.stderr)
@@ -298,7 +317,7 @@ def _compileSlang(metadata, fileName, targetMode, options, outputFile, verbose=F
     os.remove(depFile)
 
     # Update metadata.
-    return {"options": options, "deps": deps, "version": versionCode}
+    return {"options": options, "deps": deps, "version": versionCode, "includePaths": includePaths}
 
 
 def compileAndLoadModule(metadata, sources, moduleName, buildDir, slangSourceDir=None, verbose=False, dryRun=False):
@@ -473,7 +492,7 @@ def parseDepfile(depFile):
     return allDepFiles
 
 
-def _loadModule(fileName, moduleName, outputFolder, options, sourceDir=None, verbose=False, dryRun=False):
+def _loadModule(fileName, moduleName, outputFolder, options, sourceDir=None, verbose=False, includePaths=[], dryRun=False):
 
     # Try to find a metadata file "metadata.json" in outputFolder.
     metadataFile = os.path.join(outputFolder, "metadata.json")
@@ -496,10 +515,10 @@ def _loadModule(fileName, moduleName, outputFolder, options, sourceDir=None, ver
     # Compile slang files to intermediate host and kernel modules.
     compileStartTime = time.perf_counter()
 
-    resultCpp, metadataCpp = compileSlang(metadata.get("cpp", None), fileName, "torch-binding", options, cppOutName, verbose, dryRun=dryRun)
+    resultCpp, metadataCpp = compileSlang(metadata.get("cpp", None), fileName, "torch-binding", options, cppOutName, verbose, includePaths=includePaths, dryRun=dryRun)
     metadata["cpp"] = metadataCpp
 
-    resultCuda, metadataCuda = compileSlang(metadata.get("cuda", None), fileName, "cuda", options, cudaOutName, verbose, dryRun=dryRun)
+    resultCuda, metadataCuda = compileSlang(metadata.get("cuda", None), fileName, "cuda", options, cudaOutName, verbose, includePaths=includePaths, dryRun=dryRun)
     metadata["cuda"] = metadataCuda
 
     if dryRun and (resultCuda or resultCpp):
@@ -534,7 +553,7 @@ def _loadModule(fileName, moduleName, outputFolder, options, sourceDir=None, ver
     return slangLib
 
 
-def loadModule(fileName, skipSlang=None, verbose=False, defines={}):
+def loadModule(fileName, skipSlang=None, verbose=False, defines={}, includePaths=[]):
     # Print warning
     if skipSlang is not None:
         print("Warning: skipSlang is deprecated in favor of a dependency-based cache.", file=sys.stderr)
@@ -571,7 +590,7 @@ def loadModule(fileName, skipSlang=None, verbose=False, defines={}):
         if verbose:
             print(f"Dry-run using latest build directory: {buildDir}", file=sys.stderr)
 
-        needsRecompile = _loadModule(fileName, moduleName, buildDir, options, sourceDir=outputFolder, verbose=verbose, dryRun=True)
+        needsRecompile = _loadModule(fileName, moduleName, buildDir, options, sourceDir=outputFolder, verbose=verbose, includePaths=includePaths, dryRun=True)
     else:
         if verbose:
             print(f"No latest build directory.", file=sys.stderr)
@@ -589,7 +608,7 @@ def loadModule(fileName, skipSlang=None, verbose=False, defines={}):
     if verbose:
         print(f"Working folder: {buildDir}", file=sys.stderr)
 
-    rawModule = _loadModule(fileName, moduleName, buildDir, options, sourceDir=outputFolder, verbose=verbose, dryRun=False)
+    rawModule = _loadModule(fileName, moduleName, buildDir, options, sourceDir=outputFolder, verbose=verbose, includePaths=includePaths, dryRun=False)
     return wrapModule(rawModule)
 
 
