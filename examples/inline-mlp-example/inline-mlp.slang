@@ -93,9 +93,9 @@ struct Linear<let C : int>
                     continue;
 
                 if (colMajor)
-                    wtPtr[(i + threadIdInWarp) * C + j] = weights[i + threadIdx.x, j];
+                    wtPtr[(i + threadIdInWarp) * C + j] = weights[i + threadIdInWarp, j];
                 else
-                    wtPtr[j * C + (i + threadIdInWarp)] = weights[i + threadIdx.x, j];
+                    wtPtr[j * C + (i + threadIdInWarp)] = weights[i + threadIdInWarp, j];
             }
         }
 
