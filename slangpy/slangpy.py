@@ -272,6 +272,8 @@ def compileSlang(metadata, fileName, targetMode, options, outputFile, verbose=Fa
             if verbose:
                 print(f"Include paths are different \"{oldIncludePaths}\" => \"{includePaths}\". Needs recompile.", file=sys.stderr)
             needsRecompile = True
+    else:
+        needsRecompile = True
     
     if needsRecompile:
         return True, (_compileSlang(metadata, fileName, targetMode, options, outputFile, includePaths, verbose) if not dryRun else None)
