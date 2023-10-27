@@ -39,14 +39,16 @@ In practice, for our 1-triangle rasterizer, we will estimate the two integrals b
 
 That is, we will replace the integrals with discrete sums over samples ($N_a$ area samples + $N_e$ edge samples):
 
-$$\widehat{\partial_\theta I_{i, j}} = \sum^{N_a}_{m=0} \partial_\theta f (x_m, y_m) \cdot (c - b) + \sum^{N_e}_{n = 0} f(x(s_n), y(s_n); \theta)\cdot\Big(\mathbf{n}(s)\cdot (\partial_\theta x, \partial_\theta y)\Big) $$
+$$\widehat{\partial_\theta I_{i, j}} = \frac{1}{N_a} {\sum^{N_a}\_{m=0}} \partial_\theta f (x_m, y_m) \cdot (c - b) +  \frac{1}{N_e} {\sum^{N_e}\_{n=0}} f(x_n, y_n; \theta)\cdot\Big(\mathbf{n} \cdot (\partial_\theta x, \partial_\theta y)\Big) $$
 
 Our next section will express this as a rasterizer which **upon** differentiation gives us the above estimator.
 
 ## Implementing a differentiable rasterizer
 
 We'll use the following construction for our rasterizer:
-$$\widehat{I_{i, j}} = \sum^{N_a}_{m=0} f(x_m, y_m) \cdot (c - b) + \sum^{N_e}_{n = 0} f(x_n, y_n; \theta)\cdot\mathbf{n}\cdot \Big((x_n, y_n) - (\bar{x}_n, \bar{y}_n)\Big)$$
+
+$$\widehat{I_{i, j}} = \frac{1}{N_a} {\sum^{N_a}\_{m=0}} f(x_m, y_m) \cdot (c - b) + \frac{1}{N_e} {\sum^{N_e}\_{n=0}} f(x_n, y_n; \theta)\cdot\mathbf{n}\cdot \Big((x_n, y_n) - (\bar{x}_n, \bar{y}_n)\Big)$$
+where $(\bar{x}_n, \bar{y}_n)$ is $(x_n, y_n)$ _detached_ from the graph (equivalent to PyTorch's `stop_gradient`), the first term represents area samples from the 2D domain of the pixel, and the second term represents edge samples from edges (if present) in the pixel.
 
 **Note:** The key idea here is that differentiating this estimator using any auto-diff system (w.r.t $\theta$) will yield the derivative estimator that we discussed in the previous section.
 
