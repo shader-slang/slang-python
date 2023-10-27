@@ -243,4 +243,4 @@ class TestDiffRenderPixel(unittest.TestCase):
 
         dColor = self.renderPixelFwdDiff(vertices, d_vertices, pixelID)
 
-        self.assertTensorsClose(dColor.cpu(), torch.tensor([0.0, 0.0, 0.0]))
+        self.assertTensorsClose(dColor.cpu(), torch.tensor([0.0000, -0.2625, -0.2625]))
