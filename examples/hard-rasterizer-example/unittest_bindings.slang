@@ -81,8 +81,8 @@ void render_pixel_direct_call(
     Camera camera = { float2(0.0, 0.0), float2(1.0, 1.0), float2(256, 256) };
     PRNG prng = PRNG(reinterpret<uint, int>(rngState[0]));
 
-    float3 color = render_pixel( { pixel[0, 0], pixel[0, 1] }, camera, triangle, prng);
-    output[0, 0] = color[0];
-    output[0, 1] = color[1];
-    output[0, 2] = color[2];
+    float3 color = render_pixel( { pixel[0], pixel[1] }, camera, triangle, prng);
+    output[0] = color[0];
+    output[1] = color[1];
+    output[2] = color[2];
 }
