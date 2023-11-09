@@ -7,6 +7,7 @@ import hashlib
 import json
 import re
 import time
+from filelock import FileLock
 
 from .util import jit_compile, run_ninja, NinjaResult
 from .util import wrapModule
@@ -516,12 +517,13 @@ def _loadModule(fileName, moduleName, outputFolder, options, sourceDir=None, ver
 
     # Compile slang files to intermediate host and kernel modules.
     compileStartTime = time.perf_counter()
+    lock = FileLock(metadataFile + ".lock")
+    with lock:
+        resultCpp, metadataCpp = compileSlang(metadata.get("cpp", None), fileName, "torch-binding", options, cppOutName, verbose, includePaths=includePaths, dryRun=dryRun)
+        metadata["cpp"] = metadataCpp
 
-    resultCpp, metadataCpp = compileSlang(metadata.get("cpp", None), fileName, "torch-binding", options, cppOutName, verbose, includePaths=includePaths, dryRun=dryRun)
-    metadata["cpp"] = metadataCpp
-
-    resultCuda, metadataCuda = compileSlang(metadata.get("cuda", None), fileName, "cuda", options, cudaOutName, verbose, includePaths=includePaths, dryRun=dryRun)
-    metadata["cuda"] = metadataCuda
+        resultCuda, metadataCuda = compileSlang(metadata.get("cuda", None), fileName, "cuda", options, cudaOutName, verbose, includePaths=includePaths, dryRun=dryRun)
+        metadata["cuda"] = metadataCuda
 
     if dryRun and (resultCuda or resultCpp):
         return True
