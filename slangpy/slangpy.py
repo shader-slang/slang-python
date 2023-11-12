@@ -517,13 +517,12 @@ def _loadModule(fileName, moduleName, outputFolder, options, sourceDir=None, ver
 
     # Compile slang files to intermediate host and kernel modules.
     compileStartTime = time.perf_counter()
-    lock = FileLock(metadataFile + ".lock")
-    with lock:
-        resultCpp, metadataCpp = compileSlang(metadata.get("cpp", None), fileName, "torch-binding", options, cppOutName, verbose, includePaths=includePaths, dryRun=dryRun)
-        metadata["cpp"] = metadataCpp
 
-        resultCuda, metadataCuda = compileSlang(metadata.get("cuda", None), fileName, "cuda", options, cudaOutName, verbose, includePaths=includePaths, dryRun=dryRun)
-        metadata["cuda"] = metadataCuda
+    resultCpp, metadataCpp = compileSlang(metadata.get("cpp", None), fileName, "torch-binding", options, cppOutName, verbose, includePaths=includePaths, dryRun=dryRun)
+    metadata["cpp"] = metadataCpp
+
+    resultCuda, metadataCuda = compileSlang(metadata.get("cuda", None), fileName, "cuda", options, cudaOutName, verbose, includePaths=includePaths, dryRun=dryRun)
+    metadata["cuda"] = metadataCuda
 
     if dryRun and (resultCuda or resultCpp):
         return True
@@ -574,45 +573,47 @@ def loadModule(fileName, skipSlang=None, verbose=False, defines={}, includePaths
     parentFolder = os.path.dirname(fileName)
     baseNameWoExt = os.path.splitext(os.path.basename(fileName))[0]
     baseOutputFolder = os.path.join(parentFolder, ".slangpy_cache", baseNameWoExt)
-
-    # Specialize output folder with hash of the specialization parameters
     outputFolder = os.path.join(baseOutputFolder, optionsHash)
 
-    if not os.path.exists(outputFolder):
-        os.makedirs(outputFolder)
-    
-    # Common options
-    options = makeOptionsList(defines)
+    lockFile = os.path.join(parentFolder, optionsHash + ".lock")
+    with FileLock(lockFile):
+        # Specialize output folder with hash of the specialization parameters
 
-    # Module name
-    moduleName = f"_slangpy_{convertNonAlphaNumericToUnderscore(baseNameWoExt)}_{optionsHash}"
-    
-    # Dry run with latest build dir
-    buildDir = getLatestDir(outputFolder, outputFolder)
+        if not os.path.exists(outputFolder):
+            os.makedirs(outputFolder)
+        
+        # Common options
+        options = makeOptionsList(defines)
 
-    if buildDir is not None:
+        # Module name
+        moduleName = f"_slangpy_{convertNonAlphaNumericToUnderscore(baseNameWoExt)}_{optionsHash}"
+        
+        # Dry run with latest build dir
+        buildDir = getLatestDir(outputFolder, outputFolder)
+
+        if buildDir is not None:
+            if verbose:
+                print(f"Dry-run using latest build directory: {buildDir}", file=sys.stderr)
+
+            needsRecompile = _loadModule(fileName, moduleName, buildDir, options, sourceDir=outputFolder, verbose=verbose, includePaths=includePaths, dryRun=True)
+        else:
+            if verbose:
+                print(f"No latest build directory.", file=sys.stderr)
+
+            needsRecompile = True
+
+        if needsRecompile:
+            if verbose:
+                print("Build required. Creating unique build directory", file=sys.stderr)
+            # Handle versioning
+            buildDir = getOrCreateUniqueDir(outputFolder, outputFolder)
+        else:
+            buildDir = buildDir
+        
         if verbose:
-            print(f"Dry-run using latest build directory: {buildDir}", file=sys.stderr)
+            print(f"Working folder: {buildDir}", file=sys.stderr)
 
-        needsRecompile = _loadModule(fileName, moduleName, buildDir, options, sourceDir=outputFolder, verbose=verbose, includePaths=includePaths, dryRun=True)
-    else:
-        if verbose:
-            print(f"No latest build directory.", file=sys.stderr)
-
-        needsRecompile = True
-
-    if needsRecompile:
-        if verbose:
-            print("Build required. Creating unique build directory", file=sys.stderr)
-        # Handle versioning
-        buildDir = getOrCreateUniqueDir(outputFolder, outputFolder)
-    else:
-        buildDir = buildDir
-    
-    if verbose:
-        print(f"Working folder: {buildDir}", file=sys.stderr)
-
-    rawModule = _loadModule(fileName, moduleName, buildDir, options, sourceDir=outputFolder, verbose=verbose, includePaths=includePaths, dryRun=False)
+        rawModule = _loadModule(fileName, moduleName, buildDir, options, sourceDir=outputFolder, verbose=verbose, includePaths=includePaths, dryRun=False)
     return wrapModule(rawModule)
 
 
