@@ -575,7 +575,7 @@ def loadModule(fileName, skipSlang=None, verbose=False, defines={}, includePaths
     baseOutputFolder = os.path.join(parentFolder, ".slangpy_cache", baseNameWoExt)
     outputFolder = os.path.join(baseOutputFolder, optionsHash)
 
-    lockFile = os.path.join(parentFolder, optionsHash + ".lock")
+    lockFile = os.path.join(parentFolder, os.path.basename(fileName) + optionsHash + ".lock")
     with FileLock(lockFile):
         # Specialize output folder with hash of the specialization parameters
 
