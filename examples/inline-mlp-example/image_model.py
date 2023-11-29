@@ -1,7 +1,20 @@
 import slangpy
 import torch
+import os
 
 launchBlockSize = (32, 8, 1)
+
+# Before loading our module, we're going to pre-process the TORCH_CUDA_ARCH_LIST tag from the environment. 
+# This is to get around a bug with how torch constructs arch flags: explicitly providing arch flags seems to
+# not override torch's default arch flags and cause compiler errors due to setting the SM version too low.
+# 
+# We therefore replace the env list with a restricted list of arches that we know will work.
+#
+if "TORCH_CUDA_ARCH_LIST" in os.environ:
+    # Go through space-separated list of arches and remove any that are below 8.0
+    arches = os.environ["TORCH_CUDA_ARCH_LIST"].split(" ")
+    arches = [arch for arch in arches if not int(arch.split(".")[0]) <= 7]
+    os.environ["TORCH_CUDA_ARCH_LIST"] = " ".join(arches)
 
 m = slangpy.loadModule('image-model.slang', 
                        defines={

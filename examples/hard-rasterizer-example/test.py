@@ -208,7 +208,7 @@ class TestTriangle(unittest.TestCase):
 class TestDiffRenderPixel(unittest.TestCase):
     def setUp(self) -> None:
         super().setUp()
-        self.rasterizer2d = slangpy.loadModule("unittest_bindings.slang", verbose=True)
+        self.rasterizer2d = slangpy.loadModule("unittest_bindings.slang")
 
     def assertTensorsEqual(self, a, b, msg=None):
         self.assertTrue(torch.all(torch.eq(a, b)), msg = f"Tensors not close: {a} != {b}")
