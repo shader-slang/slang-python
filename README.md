@@ -1,7 +1,3 @@
-# Slang-Python Package
+This package is renamed to slang-torch and this repository is archieved.
 
-This package allows you to use Slang as a language to write
-PyTorch kernels.
-
-Slang user guide: https://shader-slang.com/slang/user-guide/
-`slangpy` documentation: https://shader-slang.com/slang/user-guide/a1-02-slangpy.html
+Please visit https://github.com/shader-slang/slang-torch for latest development of this package.
